@@ -3,17 +3,16 @@ import time
 import random
 from bs4 import BeautifulSoup
 import re
-import json
-import os
 import uuid
-from urllib.parse import urljoin
+import json
+from parser.utils import create_directories, clean_text, download_image, is_valid_address, save_to_json
 
 class KudagoParser:
-    def __init__(self, images_dir='images'):
+    def __init__(self, images_dir='kudago_images'):
         self.session = requests.Session()
         self.images_dir = images_dir
         self.setup_headers()
-        self.create_directories()
+        create_directories(images_dir)
         
     def setup_headers(self):
         self.session.headers.update({
@@ -21,50 +20,9 @@ class KudagoParser:
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
             'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
         })
-    
-    def create_directories(self):
-        if not os.path.exists(self.images_dir):
-            os.makedirs(self.images_dir)
-    
-    def clean_text(self, text):
-        if text and text != "—":
-            return re.sub(r'\s+', ' ', text).strip()
-        return text
-
-    def download_image(self, image_url, restaurant_name):
-        if not image_url or image_url == '—':
-            return None
-            
-        try:
-            file_extension = os.path.splitext(image_url.split('?')[0])[1]  
-            if not file_extension or len(file_extension) > 2:
-                file_extension = '.jpg'
-
-            safe_name = re.sub(r'[^\w\s-]', '', restaurant_name)
-            safe_name = re.sub(r'[-\s]+', '_', safe_name)
-            filename = f"{safe_name}_{uuid.uuid4().hex[:8]}{file_extension}"
-            filepath = os.path.join(self.images_dir, filename)
-            
-            if image_url.startswith('//'):
-                image_url = 'https:' + image_url
-            elif image_url.startswith('/'):
-                image_url = 'https://kudago.com' + image_url
-        
-            response = self.session.get(image_url, timeout=15)
-            if response.status_code == 200:
-                with open(filepath, 'wb') as f:
-                    f.write(response.content)
-                return filename
-            else:
-                print(f"Ошибка загрузки изображения: {response.status_code}")
-                return None
-                
-        except Exception as e:
-            print(f"Ошибка при загрузке изображения: {e}")
-            return None
 
     def get_restaurant_list(self):
-        url = "https://kudago.com/spb/restaurants/"
+        url  = "https://kudago.com/spb/restaurants/"
         
         try:
             response = self.session.get(url, timeout=15)
@@ -137,7 +95,12 @@ class KudagoParser:
                 for img in img_elements:
                     src = img.get('src')
                     if src:
-                        if 'kudago.com' in src or src.startswith('//') or src.startswith('/'):
+                        if src.startswith('//'):
+                            src = 'https:' + src
+                        elif src.startswith('/'):
+                            src = 'https://kudago.com' + src
+                            
+                        if 'kudago.com' in src:
                             return src
     
             meta_selectors = [
@@ -151,7 +114,12 @@ class KudagoParser:
                 meta = soup.select_one(selector)
                 if meta and meta.get('content'):
                     src = meta.get('content')
-                    return src
+                    if src:
+                        if src.startswith('//'):
+                            src = 'https:' + src
+                        elif src.startswith('/'):
+                            src = 'https://kudago.com' + src
+                        return src
             
             elements_with_bg = soup.find_all(style=re.compile(r'background-image'))
             for element in elements_with_bg:
@@ -159,20 +127,29 @@ class KudagoParser:
                 match = re.search(r'background-image:\s*url\([\'"]?(.*?)[\'"]?\)', style)
                 if match:
                     src = match.group(1)
-                    if 'kudago.com' in src or src.startswith('//') or src.startswith('/'):
-                        return src
+                    if src:
+                        if src.startswith('//'):
+                            src = 'https:' + src
+                        elif src.startswith('/'):
+                            src = 'https://kudago.com' + src
+                        if 'kudago.com' in src:
+                            return src
             
             data_attrs = ['data-src', 'data-original', 'data-image', 'data-srcset']
             for attr in data_attrs:
                 imgs = soup.find_all(attrs={attr: True})
                 for img in imgs:
                     src = img.get(attr)
-                    if src and ('kudago.com' in src or src.startswith('//') or src.startswith('/')):
-
-        
-                        if ',' in src:
-                            src = src.split(',')[0].split(' ')[0]
-                        return src
+                    if src:
+                        if src.startswith('//'):
+                            src = 'https:' + src
+                        elif src.startswith('/'):
+                            src = 'https://kudago.com' + src
+                            
+                        if 'kudago.com' in src:
+                            if ',' in src:
+                                src = src.split(',')[0].split(' ')[0]
+                            return src
             
             print("Изображение не найдено")
             return None
@@ -195,16 +172,14 @@ class KudagoParser:
             
             image_filename = None
             if image_url:
-                image_filename = self.download_image(image_url, name)
-            else:
-                print(f"Нет изображения для: {name}")
+                image_filename = download_image(image_url, name, self.images_dir)
                 
             restaurant_data = {
                 'id': str(uuid.uuid4()),
-                'name': self.clean_text(name),
-                'address': self.clean_text(address) if address else 'Адрес не указан',
-                'work_time': self.clean_text(work_time) if work_time else '—',
-                'description': self.clean_text(description) if description else '—',
+                'name': clean_text(name),
+                'address': clean_text(address) if address else 'Адрес не указан',
+                'work_time': clean_text(work_time) if work_time else '—',
+                'description': clean_text(description) if description else '—',
                 'image_filename': image_filename if image_filename else 'default_restaurant.jpg',
                 'category': 'Рестораны',
                 'source': 'kudago',
@@ -216,7 +191,7 @@ class KudagoParser:
         except Exception as e:
             print(f"Ошибка при парсинге страницы: {e}")
             return None
-
+        
     def extract_name(self, soup):
         name_selectors = [
             'h1',
@@ -255,7 +230,7 @@ class KudagoParser:
                 elements = soup.select(selector)
                 for element in elements:
                     text = element.get_text(strip=True)
-                    if self.is_valid_address(text):
+                    if is_valid_address(text):
                         return text
             except:
                 continue
@@ -268,7 +243,7 @@ class KudagoParser:
                     siblings = parent.find_next_siblings()
                     for sibling in siblings:
                         text = sibling.get_text(strip=True)
-                        if self.is_valid_address(text):
+                        if is_valid_address(text):
                             return text
         except:
             pass
@@ -292,13 +267,13 @@ class KudagoParser:
                     if isinstance(match, tuple):
                         match = match[0]
                     address = match.strip()
-                    if len(address) > 10 and self.is_valid_address(address):
+                    if len(address) > 10 and is_valid_address(address):
                         return address
         except:
             pass
         
         return None
-
+    
     def extract_work_time(self, soup):
         try:
             scripts = soup.find_all('script', type='application/ld+json')
@@ -408,7 +383,7 @@ class KudagoParser:
             pass
         
         return None
-
+    
     def extract_description(self, soup):
         content_selectors = [
             '.post-big-content',
@@ -444,15 +419,6 @@ class KudagoParser:
             pass
         
         return None
-
-    def is_valid_address(self, text):
-        if not text or len(text) < 10:
-            return False
-        
-        indicators = ['ул.', 'улица', 'пр.', 'проспект', 'наб.', 'Санкт-Петербург', 'спб', 'д.', 'дом']
-        text_lower = text.lower()
-        return any(indicator in text_lower for indicator in indicators)
-
     def parse(self):
         results = []
         
@@ -475,22 +441,7 @@ class KudagoParser:
         
         return results
 
-    def save_to_json(self, results, filename='restaurants.json'):
-        try:
-            with open(filename, 'w', encoding='utf-8') as f:
-                json.dump(results, f, ensure_ascii=False, indent=2)
-
-            
-        except Exception as e:
-            print(f"Ошибка при сохранении в JSON: {e}")
-
-
 if __name__ == "__main__":
-    parser = KudagoParser()
-    results = parser.parse()
-
-    parser.save_to_json(results)
-    
-    image_files = os.listdir(parser.images_dir)
-    for img_file in image_files:
-        print(f"   - {img_file}")
+       parser = KudagoParser()
+       results = parser.parse()
+       save_to_json(results, 'restaurants.json')

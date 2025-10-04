@@ -7,16 +7,14 @@ from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 import time
 import re
-import requests
-import os
 import uuid
-import json
+from parser.utils import create_directories, clean_text, download_image, is_valid_address, save_to_json
 
 class PeterburgCenterParser:
     def __init__(self, images_dir='places_images'):
         self.images_dir = images_dir
         self.setup_driver()
-        self.create_directories()
+        create_directories(images_dir)
         
     def setup_driver(self):
         options = Options()
@@ -34,40 +32,8 @@ class PeterburgCenterParser:
         )
         self.wait = WebDriverWait(self.driver, 15)
 
-    def create_directories(self):
-        if not os.path.exists(self.images_dir):
-            os.makedirs(self.images_dir)
-
-    def download_image(self, image_url, place_name):
-        if not image_url:
-            return None
-            
-        try:
-            file_extension = os.path.splitext(image_url.split('?')[0])[1]
-            if not file_extension or len(file_extension) > 5:
-                file_extension = '.jpg'
-            
-            safe_name = re.sub(r'[^\w\s-]', '', place_name)
-            safe_name = re.sub(r'[-\s]+', '_', safe_name)
-            filename = f"{safe_name}_{uuid.uuid4().hex[:8]}{file_extension}"
-            filepath = os.path.join(self.images_dir, filename)
-            
-            response = requests.get(image_url, timeout=15)
-            if response.status_code == 200:
-                with open(filepath, 'wb') as f:
-                    f.write(response.content)
-                return filename
-            else:
-                print(f"Ошибка загрузки изображения: {response.status_code}")
-                return None
-                
-        except Exception as e:
-            print(f"Ошибка при загрузке изображения: {e}")
-            return None
-
     def extract_image_url(self):
         try:
-            
             fotorama_selectors = [
                 '//div[contains(@class, "fotorama__stage__frame")]//img[@src]',
                 '//div[contains(@class, "fotorama__active")]//img[@src]',
@@ -116,17 +82,11 @@ class PeterburgCenterParser:
                 except:
                     continue
             
-            print("Изображение не найдено")
             return None
                 
         except Exception as e:
             print(f"Ошибка при поиске изображения: {e}")
             return None
-
-    def clean_text(self, text):
-        if text and text != "—":
-            return re.sub(r'\s+', ' ', text).strip()
-        return text
 
     def get_address(self):
         address = "—"
@@ -142,13 +102,13 @@ class PeterburgCenterParser:
                 elements = self.driver.find_elements(By.XPATH, selector)
                 for element in elements:
                     text = element.text.strip()
-                    if self.is_valid_address(text):
-                        return self.clean_text(text)
+                    if is_valid_address(text):
+                        return clean_text(text)
                     
                     if "Адрес:" in text:
                         address_part = text.split("Адрес:")[-1].strip()
-                        if self.is_valid_address(address_part):
-                            return self.clean_text(address_part)
+                        if is_valid_address(address_part):
+                            return clean_text(address_part)
         
         except:
             pass
@@ -159,8 +119,8 @@ class PeterburgCenterParser:
             address_sections = body_text.split('Адрес:')
             if len(address_sections) > 1:
                 potential_address = address_sections[1].split('\n')[0].strip()
-                if self.is_valid_address(potential_address):
-                    return self.clean_text(potential_address)
+                if is_valid_address(potential_address):
+                    return clean_text(potential_address)
             
             address_patterns = [
                 r'Адрес:\s*([^\n]{10,80})',
@@ -176,24 +136,13 @@ class PeterburgCenterParser:
                 for match in matches:
                     if isinstance(match, tuple):
                         match = match[0]
-                    if self.is_valid_address(match):
-                        return self.clean_text(match)
+                    if is_valid_address(match):
+                        return clean_text(match)
                         
         except:
             pass
         
         return "—"
-
-    def is_valid_address(self, text):
-        if not text or len(text) < 10:
-            return False
-        
-        indicators = [
-            'ул.', 'улица', 'пр.', 'проспект', 'наб.', 'набережная',
-            'Санкт-Петербург', 'спб', 'д.', 'дом', 'площадь'
-        ]
-        text_lower = text.lower()
-        return any(indicator in text_lower for indicator in indicators)
 
     def get_work_time(self):
         work_time_info = []
@@ -243,7 +192,7 @@ class PeterburgCenterParser:
             result = ' | '.join(work_time_info[:8])  
             if len(result) > 400:
                 result = result[:400] + "..."
-            return self.clean_text(result)
+            return clean_text(result)
         
         return "—"
 
@@ -316,7 +265,7 @@ class PeterburgCenterParser:
         if description != "—" and len(description) > 350:
             description = description[:350] + "..."
         
-        return self.clean_text(description)
+        return clean_text(description)
 
     def parse(self):
         url = "https://peterburg.center/dostoprimechatelnocti"
@@ -353,7 +302,6 @@ class PeterburgCenterParser:
                         name = self.driver.find_element(By.TAG_NAME, "h1").text.strip()
                     except:
                         name = "—"
-                        print("Не найдено название")
                     
                     address = self.get_address()
                     work_time = self.get_work_time()
@@ -362,7 +310,7 @@ class PeterburgCenterParser:
                     image_url = self.extract_image_url()
                     image_filename = None
                     if image_url and name != "—":
-                        image_filename = self.download_image(image_url, name)
+                        image_filename = download_image(image_url, name, self.images_dir)
                     
                     place_data = {
                         "id": str(uuid.uuid4()),
@@ -385,23 +333,7 @@ class PeterburgCenterParser:
         self.driver.quit()
         return all_data
 
-    def save_to_json(self, results, filename='places.json'):
-        try:
-            with open(filename, 'w', encoding='utf-8') as f:
-                json.dump(results, f, ensure_ascii=False, indent=2)
-            
-        except Exception as e:
-            print(f"Ошибка при сохранении в JSON: {e}")
-
-
 if __name__ == "__main__":
     parser = PeterburgCenterParser()
     results = parser.parse()
-    
-    parser.save_to_json(results)
-    
-    if os.path.exists(parser.images_dir):
-        image_files = os.listdir(parser.images_dir)
-        for img_file in image_files[:5]: 
-            print(f"   - {img_file}")
-  
+    save_to_json(results, 'places.json')
