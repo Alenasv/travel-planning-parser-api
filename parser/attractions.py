@@ -7,10 +7,16 @@ from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 import time
 import re
+import requests
+import os
+import uuid
+import json
 
 class PeterburgCenterParser:
-    def __init__(self):
+    def __init__(self, images_dir='places_images'):
+        self.images_dir = images_dir
         self.setup_driver()
+        self.create_directories()
         
     def setup_driver(self):
         options = Options()
@@ -27,6 +33,95 @@ class PeterburgCenterParser:
             options=options
         )
         self.wait = WebDriverWait(self.driver, 15)
+
+    def create_directories(self):
+        if not os.path.exists(self.images_dir):
+            os.makedirs(self.images_dir)
+
+    def download_image(self, image_url, place_name):
+        if not image_url:
+            return None
+            
+        try:
+            file_extension = os.path.splitext(image_url.split('?')[0])[1]
+            if not file_extension or len(file_extension) > 5:
+                file_extension = '.jpg'
+            
+            safe_name = re.sub(r'[^\w\s-]', '', place_name)
+            safe_name = re.sub(r'[-\s]+', '_', safe_name)
+            filename = f"{safe_name}_{uuid.uuid4().hex[:8]}{file_extension}"
+            filepath = os.path.join(self.images_dir, filename)
+            
+            response = requests.get(image_url, timeout=15)
+            if response.status_code == 200:
+                with open(filepath, 'wb') as f:
+                    f.write(response.content)
+                return filename
+            else:
+                print(f"Ошибка загрузки изображения: {response.status_code}")
+                return None
+                
+        except Exception as e:
+            print(f"Ошибка при загрузке изображения: {e}")
+            return None
+
+    def extract_image_url(self):
+        try:
+            
+            fotorama_selectors = [
+                '//div[contains(@class, "fotorama__stage__frame")]//img[@src]',
+                '//div[contains(@class, "fotorama__active")]//img[@src]',
+                '//img[contains(@class, "fotorama__img")]'
+            ]
+            
+            for selector in fotorama_selectors:
+                try:
+                    images = self.driver.find_elements(By.XPATH, selector)
+                    for img in images:
+                        src = img.get_attribute('src')
+                        if src and 'peterburg.center' in src:
+                            return src
+                except:
+                    continue
+            
+            img_selectors = [
+                '//div[contains(@class, "main-content")]//img[@src]',
+                '//article//img[@src]',
+                '//div[contains(@class, "content")]//img[@src]',
+                '//img[contains(@class, "field-name-field-image")]',
+                '//img[@alt]'
+            ]
+            
+            for selector in img_selectors:
+                try:
+                    images = self.driver.find_elements(By.XPATH, selector)
+                    for img in images:
+                        src = img.get_attribute('src')
+                        if src and 'peterburg.center' in src:
+                            return src
+                except:
+                    continue
+            
+            meta_selectors = [
+                '//meta[@property="og:image"]',
+                '//meta[@name="og:image"]'
+            ]
+            
+            for selector in meta_selectors:
+                try:
+                    meta = self.driver.find_element(By.XPATH, selector)
+                    src = meta.get_attribute('content')
+                    if src:
+                        return src
+                except:
+                    continue
+            
+            print("Изображение не найдено")
+            return None
+                
+        except Exception as e:
+            print(f"Ошибка при поиске изображения: {e}")
+            return None
 
     def clean_text(self, text):
         if text and text != "—":
@@ -244,12 +339,12 @@ class PeterburgCenterParser:
                 category_name = "Достопримечательности"
             
             try:
-                cards = self.driver.find_elements(By.XPATH, '//div[contains(@class, "card")]//a[contains(@href, "/maps/")]')[:2]
+                cards = self.driver.find_elements(By.XPATH, '//div[contains(@class, "card")]//a[contains(@href, "/maps/")]')[:3]
                 card_urls = [card.get_attribute("href") for card in cards if card.get_attribute("href")]
             except:
                 card_urls = []
             
-            for card_url in card_urls:
+            for i, card_url in enumerate(card_urls, 1):
                 try:
                     self.driver.get(card_url)
                     time.sleep(3)
@@ -258,40 +353,55 @@ class PeterburgCenterParser:
                         name = self.driver.find_element(By.TAG_NAME, "h1").text.strip()
                     except:
                         name = "—"
+                        print("Не найдено название")
                     
                     address = self.get_address()
                     work_time = self.get_work_time()
                     description = self.get_description()
                     
+                    image_url = self.extract_image_url()
+                    image_filename = None
+                    if image_url and name != "—":
+                        image_filename = self.download_image(image_url, name)
+                    
                     place_data = {
+                        "id": str(uuid.uuid4()),
                         "category": category_name,
                         "name": name,
                         "address": address,
                         "work_time": work_time,
-                        "description": description
+                        "description": description,
+                        "image_filename": image_filename if image_filename else "default_place.jpg",
+                        "source": "peterburg.center",
+                        "url": card_url
                     }
                     
                     all_data.append(place_data)
                     
                 except Exception as e:
+                    print(f"Ошибка при парсинге карточки: {e}")
                     continue
 
         self.driver.quit()
         return all_data
 
-    def print_results(self, results):
+    def save_to_json(self, results, filename='places.json'):
+        try:
+            with open(filename, 'w', encoding='utf-8') as f:
+                json.dump(results, f, ensure_ascii=False, indent=2)
+            
+        except Exception as e:
+            print(f"Ошибка при сохранении в JSON: {e}")
 
-        for i, place in enumerate(results, 1):
-            print(f"\n{i}. КАТЕГОРИЯ: {place['category']}")
-            print(f"   Название: {place['name']}")
-            print(f"   Адрес: {place['address']}")
-            print(f"   Время работы: {place['work_time']}")
-            print(f"   Описание: {place['description']}")
-            print("-" * 80)
-
-        print(f"\nВсего собрано записей: {len(results)}")
 
 if __name__ == "__main__":
     parser = PeterburgCenterParser()
     results = parser.parse()
-    parser.print_results(results)
+    
+    parser.save_to_json(results)
+    
+    if os.path.exists(parser.images_dir):
+        image_files = os.listdir(parser.images_dir)
+        for img_file in image_files[:5]: 
+            print(f"   - {img_file}")
+  
