@@ -77,35 +77,28 @@ class KudagoParser:
 
     def extract_image_url(self, soup):
         try:            
-            img_selectors = [
-                'img.post-big-preview-image',
-                'img.post-preview-image',
-                '.post-cover img',
-                '.place-image img',
-                '.post-image img',
-                '.post-big-image img',
-                '[class*="preview"] img',
-                '[class*="image"] img',
-                '.poster img',
-                '.gallery img'
-            ]
+          
+            slider_images = soup.select('.post-big-preview-slide img.post-big-preview-image')
+            for img in slider_images:
+                data_full = img.get('data-full')
+                if data_full:
+                    if data_full.startswith('//'):
+                        data_full = 'https:' + data_full
+                    elif data_full.startswith('/'):
+                        data_full = 'https://kudago.com' + data_full
+                    return data_full
+               
+                src = img.get('src')
+                if src:
+                    if src.startswith('//'):
+                        src = 'https:' + src
+                    elif src.startswith('/'):
+                        src = 'https://kudago.com' + src
+                    return src
             
-            for selector in img_selectors:
-                img_elements = soup.select(selector)
-                for img in img_elements:
-                    src = img.get('src')
-                    if src:
-                        if src.startswith('//'):
-                            src = 'https:' + src
-                        elif src.startswith('/'):
-                            src = 'https://kudago.com' + src
-                            
-                        if 'kudago.com' in src:
-                            return src
-    
             meta_selectors = [
                 'meta[property="og:image"]',
-                'meta[name="og:image"]',
+                'meta[name="og:image"]', 
                 'meta[property="twitter:image"]',
                 'meta[name="twitter:image"]'
             ]
@@ -121,6 +114,32 @@ class KudagoParser:
                             src = 'https://kudago.com' + src
                         return src
             
+            img_selectors = [
+                '.post-cover img',
+                '.place-image img',
+                '.post-image img',
+                '.post-big-image img',
+                '[class*="preview"] img',
+                '[class*="image"] img',
+                '.poster img',
+                '.gallery img',
+                'img[src*="kudago.com"]',
+                'img[src*="media.kudago.com"]'
+            ]
+            
+            for selector in img_selectors:
+                img_elements = soup.select(selector)
+                for img in img_elements:
+                    src = img.get('src') or img.get('data-src') or img.get('data-original')
+                    if src:
+                        if src.startswith('//'):
+                            src = 'https:' + src
+                        elif src.startswith('/'):
+                            src = 'https://kudago.com' + src
+                            
+                        if 'kudago.com' in src or 'media.kudago.com' in src:
+                            return src
+            
             elements_with_bg = soup.find_all(style=re.compile(r'background-image'))
             for element in elements_with_bg:
                 style = element.get('style', '')
@@ -135,29 +154,53 @@ class KudagoParser:
                         if 'kudago.com' in src:
                             return src
             
-            data_attrs = ['data-src', 'data-original', 'data-image', 'data-srcset']
-            for attr in data_attrs:
-                imgs = soup.find_all(attrs={attr: True})
-                for img in imgs:
-                    src = img.get(attr)
-                    if src:
-                        if src.startswith('//'):
-                            src = 'https:' + src
-                        elif src.startswith('/'):
-                            src = 'https://kudago.com' + src
-                            
-                        if 'kudago.com' in src:
-                            if ',' in src:
-                                src = src.split(',')[0].split(' ')[0]
-                            return src
-            
-            print("Изображение не найдено")
+            print(" Изображение не найдено на странице")
             return None
                 
         except Exception as e:
-            print(f"Ошибка при извлечении URL изображения: {e}")
+            print(f" Ошибка при извлечении URL изображения: {e}")
             return None
 
+    def get_best_image_url(self, soup):
+        try:
+            slider_images = soup.select('.post-big-preview-slide img.post-big-preview-image')
+            for img in slider_images:
+                data_full = img.get('data-full')
+                if data_full:
+                    return self.normalize_url(data_full)
+            
+            for img in slider_images:
+                src = img.get('src')
+                if src:
+                    return self.normalize_url(src)
+            
+            og_image = soup.find('meta', property='og:image')
+            if og_image and og_image.get('content'):
+                return self.normalize_url(og_image.get('content'))
+            
+            other_images = soup.find_all('img', src=re.compile(r'kudago\.com|media\.kudago\.com'))
+            for img in other_images:
+                src = img.get('src')
+                if src:
+                    return self.normalize_url(src)
+            
+            return None
+            
+        except Exception as e:
+            print(f"Ошибка при поиске изображения: {e}")
+            return None
+
+    def normalize_url(self, url):
+        if not url:
+            return None
+        
+        if url.startswith('//'):
+            url = 'https:' + url
+        elif url.startswith('/'):
+            url = 'https://kudago.com' + url
+        
+        return url
+    
     def parse_restaurant_page(self, soup, url):
         try:
             name = self.extract_name(soup)
