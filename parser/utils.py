@@ -2,9 +2,9 @@ import os
 import re
 import uuid
 import requests
-import shutil
 from urllib.parse import urlparse
 import json
+from transliterate import translit
 
 def create_directories(images_dir):
     if not os.path.exists(images_dir):
@@ -30,8 +30,11 @@ def download_image(image_url, place_name, images_dir):
         if not file_extension or len(file_extension) > 5:
             file_extension = '.jpg'
         
-        safe_name = re.sub(r'[^\w\s-]', '', place_name)
+        safe_name = translit(place_name, 'ru', reversed=True)  
+        safe_name = re.sub(r'[^\w\s-]', '', safe_name)
         safe_name = re.sub(r'[-\s]+', '_', safe_name)
+        safe_name = re.sub(r'_+', '_', safe_name).strip('_')
+        
         filename = f"{safe_name}_{uuid.uuid4().hex[:8]}{file_extension}"
         filepath = os.path.join(images_dir, filename)
         
@@ -91,12 +94,11 @@ def download_image(image_url, place_name, images_dir):
         except requests.exceptions.Timeout:
             return None
         except requests.exceptions.ConnectionError:
-            print(f" Ошибка соединения при загрузке: {clean_url}")
+            print(f"Ошибка соединения при загрузке: {clean_url}")
             return None
             
-            
     except Exception as e:
-        print(f" Ошибка при загрузке изображения {image_url}: {e}")
+        print(f"Ошибка при загрузке изображения {image_url}: {e}")
         return None
 
 def is_valid_address(text):
@@ -133,25 +135,3 @@ def merge_json_files(files, output_file='all_places.json'):
     if save_to_json(all_data, output_file):
         return True
     return False
-
-def cleanup_previous_data():
-    json_files = ['all_places.json', 'restaurants.json', 'places.json']
-    image_dirs = ['kudago_images', 'places_images']
-
-    deleted_files = 0
-    for json_file in json_files:
-        if os.path.exists(json_file):
-            try:
-                os.remove(json_file)
-                deleted_files += 1
-            except Exception as e:
-                print(f"Не удалось удалить {json_file}: {e}")
-    
-    deleted_dirs = 0
-    for image_dir in image_dirs:
-        if os.path.exists(image_dir):
-            try:
-                shutil.rmtree(image_dir)
-                deleted_dirs += 1
-            except Exception as e:
-                print(f"Не удалось удалить {image_dir}: {e}")
