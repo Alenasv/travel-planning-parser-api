@@ -90,60 +90,71 @@ class PeterburgCenterParser:
 
     def get_address(self):
         address = "—"
+        
         try:
             address_selectors = [
-                '//*[contains(@class, "address")]',
-                '//*[contains(@class, "location")]',
-                '//*[contains(text(), "Адрес:")]',
-                '//*[contains(text(), "Адрес ")]',
+                '//div[contains(@class, "field-name-field-address")]//div[contains(@class, "field-item")]',
+                '//div[contains(@class, "field-name-field-address")]',
+                '//div[contains(@class, "field-label")][contains(., "Адрес")]/following-sibling::div[contains(@class, "field-items")]',
             ]
             
             for selector in address_selectors:
-                elements = self.driver.find_elements(By.XPATH, selector)
-                for element in elements:
+                try:
+                    elements = self.driver.find_elements(By.XPATH, selector)
+                    for element in elements:
+                        text = element.text.strip()
+                        if text and len(text) > 5:
+                            cleaned = re.sub(r'^Адрес:\s*', '', text, flags=re.IGNORECASE)
+                            cleaned = re.sub(r'^\s*Адрес\s*', '', cleaned, flags=re.IGNORECASE)
+                            cleaned = cleaned.strip()
+                            if cleaned and len(cleaned) > 5:
+                                return clean_text(cleaned)
+                except Exception as e:
+                    continue
+            
+            try:
+                elements_with_address = self.driver.find_elements(By.XPATH, '//*[contains(text(), "Адрес:")]')
+                for element in elements_with_address:
                     text = element.text.strip()
-                    if is_valid_address(text):
-                        return clean_text(text)
-                    
                     if "Адрес:" in text:
-                        address_part = text.split("Адрес:")[-1].strip()
-                        if is_valid_address(address_part):
-                            return clean_text(address_part)
-        
-        except:
-            pass
-        
-        try:
-            body_text = self.driver.find_element(By.TAG_NAME, 'body').text
+                        parts = text.split("Адрес:")
+                        if len(parts) > 1:
+                            address_part = parts[1].strip().split('\n')[0].strip()
+                            if address_part and len(address_part) > 5:
+                                return clean_text(address_part)
+            except:
+                pass
             
-            address_sections = body_text.split('Адрес:')
-            if len(address_sections) > 1:
-                potential_address = address_sections[1].split('\n')[0].strip()
-                if is_valid_address(potential_address):
-                    return clean_text(potential_address)
+            try:
+                inline_elements = self.driver.find_elements(By.XPATH, '//div[contains(@class, "field-label-inline")]')
+                for element in inline_elements:
+                    text = element.text.strip()
+                    if "Адрес:" in text:
+                        address_match = re.search(r'Адрес:\s*(.+?)(?:\n|$)', text, re.IGNORECASE)
+                        if address_match:
+                            address_part = address_match.group(1).strip()
+                            if address_part and len(address_part) > 5:
+                                return clean_text(address_part)
+            except:
+                pass
             
-            address_patterns = [
-                r'Адрес:\s*([^\n]{10,80})',
-                r'Санкт-Петербург[^,\n]{0,50}',
-                r'ул\.\s*[^,\n]{5,40}',
-                r'улица\s*[^,\n]{5,40}',
-                r'проспект\s*[^,\n]{5,40}',
-                r'набережная\s*[^,\n]{5,40}'
-            ]
-            
-            for pattern in address_patterns:
-                matches = re.findall(pattern, body_text, re.IGNORECASE)
-                for match in matches:
-                    if isinstance(match, tuple):
-                        match = match[0]
-                    if is_valid_address(match):
-                        return clean_text(match)
-                        
-        except:
-            pass
+            try:
+                field_items = self.driver.find_elements(By.XPATH, '//div[contains(@class, "field-item")]')
+                for item in field_items:
+                    text = item.text.strip()
+                    if (len(text) > 10 and 
+                        any(keyword in text.lower() for keyword in ['санкт-петербург', 'спб', 'ленинградская', 'ул.', 'улица', 'проспект', 'площадь', 'набережная']) and
+                        not any(exclude in text.lower() for exclude in ['режим работы', 'телефон', 'сайт', 'email'])):
+                    
+                        return clean_text(text)
+            except:
+                pass
+                
+        except Exception as e:
+            print(f"Общая ошибка при поиске адреса: {e}")
         
         return "—"
-
+    
     def get_work_time(self):
         work_time_info = []
         
@@ -183,13 +194,14 @@ class PeterburgCenterParser:
                     text = item.text.strip()
                     if (any(keyword in text.lower() for keyword in ['музей работает', 'работает:', 'касса работает', 'выходной']) or
                         (any(day in text.lower() for day in ['понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота', 'воскресенье']) and 
-                         any(time_indicator in text for time_indicator in [':', '—', '00']))):
+                        any(time_indicator in text for time_indicator in [':', '—', '00']))):
                         work_time_info.append(text)
             except:
                 pass
         
         if work_time_info:
-            result = ' | '.join(work_time_info[:8])  
+            
+            result = '\n'.join(work_time_info[:8])  
             if len(result) > 400:
                 result = result[:400] + "..."
             return clean_text(result)
@@ -221,7 +233,8 @@ class PeterburgCenterParser:
                                 'является', 'служил', 'расположен', 'находится',
                                 'образцом', 'площадь', 'река', 'парк', 'дворец',
                                 'музей', 'архитектур', 'истори', 'культур',
-                                'композиционным', 'ансамбль', 'резиденция'
+                                'композиционным', 'ансамбль', 'резиденция',
+                                'история', 'создания', 'построен', 'основан'  
                             ])):
                             
                             description = line_clean
@@ -233,37 +246,37 @@ class PeterburgCenterParser:
                     '//div[contains(@class, "content")]',
                     '//div[contains(@class, "description")]',
                     '//article',
-                    '//main'
+                    '//main',
+                    '//div[contains(@class, "text-content")]',  
+                    '//div[contains(@class, "entry-content")]'
                 ]
                 
                 for selector in content_selectors:
                     elements = self.driver.find_elements(By.XPATH, selector)
                     for element in elements:
                         paragraphs = element.find_elements(By.TAG_NAME, 'p')
+                        description_texts = []
+                        
                         for p in paragraphs:
                             text = p.text.strip()
-                            if (len(text) > 80 and 
+                            if (len(text) > 50 and  
                                 not any(exclude in text.lower() for exclude in [
                                     'режим работы', 'время работы', 'расписание',
-                                    'телефон', 'сайт', 'цена', 'билет', 'руб.'
-                                ]) and
-                                any(desc_word in text.lower() for desc_word in [
-                                    'музей', 'коллекция', 'экспонат', 'дворец',
-                                    'парк', 'архитектур', 'истори', 'культур'
+                                    'телефон', 'сайт', 'цена', 'билет', 'руб.',
+                                    'стоимость', 'адрес:', 'контакты', 'касса'
                                 ])):
                                 
-                                description = text
-                                break
-                        if description != "—":
+                                description_texts.append(text)
+                        
+                        if description_texts:
+                            description = ' '.join(description_texts[:3])
                             break
+                            
                     if description != "—":
                         break
         
         except Exception as e:
-            pass
-        
-        if description != "—" and len(description) > 350:
-            description = description[:350] + "..."
+            print(f"Ошибка при получении описания: {e}")
         
         return clean_text(description)
 
@@ -277,58 +290,62 @@ class PeterburgCenterParser:
 
         all_data = []
 
-        if category_urls:
-            first_category_url = category_urls[0]
-            self.driver.get(first_category_url)
-            time.sleep(3)
-            
+        for category_url in category_urls:
             try:
-                category_name = self.driver.find_element(By.TAG_NAME, "h1").text.strip()
-            except:
-                category_name = "Достопримечательности"
-            
-            try:
-                cards = self.driver.find_elements(By.XPATH, '//div[contains(@class, "card")]//a[contains(@href, "/maps/")]')[:3]
-                card_urls = [card.get_attribute("href") for card in cards if card.get_attribute("href")]
-            except:
-                card_urls = []
-            
-            for i, card_url in enumerate(card_urls, 1):
+                self.driver.get(category_url)
+                time.sleep(3)
+                
                 try:
-                    self.driver.get(card_url)
-                    time.sleep(3)
-                    
+                    category_name = self.driver.find_element(By.TAG_NAME, "h1").text.strip()
+                except:
+                    category_name = "Достопримечательности"
+                
+                try:
+                    cards = self.driver.find_elements(By.XPATH, '//div[contains(@class, "card")]//a[contains(@href, "/maps/")]')[:7]
+                    card_urls = [card.get_attribute("href") for card in cards if card.get_attribute("href")]
+                except:
+                    card_urls = []
+                
+                for i, card_url in enumerate(card_urls, 1):
                     try:
-                        name = self.driver.find_element(By.TAG_NAME, "h1").text.strip()
-                    except:
-                        name = "—"
-                    
-                    address = self.get_address()
-                    work_time = self.get_work_time()
-                    description = self.get_description()
-                    
-                    image_url = self.extract_image_url()
-                    image_filename = None
-                    if image_url and name != "—":
-                        image_filename = download_image(image_url, name, self.images_dir)
-                    
-                    place_data = {
-                        "id": str(uuid.uuid4()),
-                        "category": category_name,
-                        "name": name,
-                        "address": address,
-                        "work_time": work_time,
-                        "description": description,
-                        "image_filename": image_filename if image_filename else "default_place.jpg",
-                        "source": "peterburg.center",
-                        "url": card_url
-                    }
-                    
-                    all_data.append(place_data)
-                    
-                except Exception as e:
-                    print(f"Ошибка при парсинге карточки: {e}")
-                    continue
+                        self.driver.get(card_url)
+                        time.sleep(3)
+                        
+                        try:
+                            name = self.driver.find_element(By.TAG_NAME, "h1").text.strip()
+                        except:
+                            name = "—"
+                        
+                        address = self.get_address()
+                        work_time = self.get_work_time()
+                        description = self.get_description()
+                        
+                        image_url = self.extract_image_url()
+                        image_filename = None
+                        if image_url and name != "—":
+                            image_filename = download_image(image_url, name, self.images_dir)
+                        
+                        place_data = {
+                            "id": str(uuid.uuid4()),
+                            "category": category_name,
+                            "name": name,
+                            "address": address,
+                            "work_time": work_time,
+                            "description": description,
+                            "image_filename": image_filename if image_filename else "default_place.jpg",
+                            "source": "peterburg.center",
+                            "url": card_url
+                        }
+                        
+                        all_data.append(place_data)
+                        
+                    except Exception as e:
+                        print(f"Ошибка при парсинге карточки: {e}")
+                        continue
+                        
+            except Exception as e:
+                print(f"Ошибка при обработке категории {category_url}: {e}")
+                continue
 
         self.driver.quit()
         return all_data

@@ -55,7 +55,7 @@ class KudagoParser:
                 
                 if full_url not in links:
                     links.append(full_url)
-                    if len(links) >= 2:
+                    if len(links) >= 7:
                         break
         return links
 

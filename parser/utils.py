@@ -10,10 +10,44 @@ def create_directories(images_dir):
     if not os.path.exists(images_dir):
         os.makedirs(images_dir)
 
+def is_valid_address(text):
+    if not text or len(text) < 5:
+        return False
+    
+    text_lower = text.lower()
+    
+    exclude_patterns = [
+        'режим работы', 'время работы', 'телефон', 'email', 
+        'сайт', 'www.', 'http', 'цена', 'стоимость', 'билет',
+        'метро', 'как добраться', 'расписание', 'график'
+    ]
+    
+    if any(pattern in text_lower for pattern in exclude_patterns):
+        return False
+    
+    include_patterns = [
+        'санкт-петербург', 'спб', 'ленинградская', 'область',
+        'ул.', 'улица', 'проспект', 'пр.', 'набережная', 'наб.',
+        'площадь', 'пл.', 'дом', 'д.', 'г.', 'город', 'мост', 'парк', 'сад'
+    ]
+    
+    if any(pattern in text_lower for pattern in include_patterns):
+        return True
+    
+    if len(text) > 15 and (',' in text or '.' in text):
+        return True
+    
+    return True 
+
 def clean_text(text):
-    if text and text != "—":
-        return re.sub(r'\s+', ' ', text).strip()
-    return text
+    if not text or text == "—":
+        return text
+    
+    lines = text.split('\n')
+    cleaned_lines = [re.sub(r'[ \t]+', ' ', line).strip() for line in lines]
+    cleaned_lines = [line for line in cleaned_lines if line]  
+    
+    return '\n'.join(cleaned_lines)
 
 def download_image(image_url, place_name, images_dir):
     if not image_url:
@@ -78,7 +112,7 @@ def download_image(image_url, place_name, images_dir):
                 
                 file_size = os.path.getsize(filepath)
                 if file_size > 1000:  
-                    return filename
+                    return f"{images_dir}/{filename}"
                 else:
                     os.remove(filepath)
                     return None
@@ -107,7 +141,8 @@ def is_valid_address(text):
     
     indicators = [
         'ул.', 'улица', 'пр.', 'проспект', 'наб.', 'набережная',
-        'Санкт-Петербург', 'спб', 'д.', 'дом', 'площадь', 'аллея', 'бульвар'
+        'Санкт-Петербург', 'спб', 'д.', 'дом', 'площадь', 'аллея', 'бульвар',
+        'линия', 'остров', 'переулок', 'пер.', 'шоссе', 'проезд'
     ]
     text_lower = text.lower()
     return any(indicator in text_lower for indicator in indicators)
