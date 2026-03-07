@@ -1,356 +1,324 @@
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from webdriver_manager.chrome import ChromeDriverManager
-import time
+import requests
+from bs4 import BeautifulSoup
 import re
 import uuid
-from parser.utils import create_directories, clean_text, download_image, is_valid_address, save_to_json
+import time
+from urllib.parse import urljoin
+from parser.utils import create_directories, clean_text, download_image, save_to_json
 
 class PeterburgCenterParser:
     def __init__(self, images_dir='places_images'):
         self.images_dir = images_dir
-        self.setup_driver()
+        self.base_url = "https://peterburg.center"
+        self.headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Connection': 'keep-alive',
+        }
+        self.session = requests.Session()
+        self.session.headers.update(self.headers)
         create_directories(images_dir)
-        
-    def setup_driver(self):
-        options = Options()
-        options.add_argument("--headless")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--window-size=1920,1080")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
-        options.add_argument("--log-level=3")
-        
-        self.driver = webdriver.Chrome(
-            service=Service(ChromeDriverManager().install()), 
-            options=options
-        )
-        self.wait = WebDriverWait(self.driver, 15)
 
-    def extract_image_url(self):
+    def fetch_html(self, url):
         try:
-            fotorama_selectors = [
-                '//div[contains(@class, "fotorama__stage__frame")]//img[@src]',
-                '//div[contains(@class, "fotorama__active")]//img[@src]',
-                '//img[contains(@class, "fotorama__img")]'
-            ]
-            
-            for selector in fotorama_selectors:
-                try:
-                    images = self.driver.find_elements(By.XPATH, selector)
-                    for img in images:
-                        src = img.get_attribute('src')
-                        if src and 'peterburg.center' in src:
-                            return src
-                except:
-                    continue
-            
-            img_selectors = [
-                '//div[contains(@class, "main-content")]//img[@src]',
-                '//article//img[@src]',
-                '//div[contains(@class, "content")]//img[@src]',
-                '//img[contains(@class, "field-name-field-image")]',
-                '//img[@alt]'
-            ]
-            
-            for selector in img_selectors:
-                try:
-                    images = self.driver.find_elements(By.XPATH, selector)
-                    for img in images:
-                        src = img.get_attribute('src')
-                        if src and 'peterburg.center' in src:
-                            return src
-                except:
-                    continue
-            
-            meta_selectors = [
-                '//meta[@property="og:image"]',
-                '//meta[@name="og:image"]'
-            ]
-            
-            for selector in meta_selectors:
-                try:
-                    meta = self.driver.find_element(By.XPATH, selector)
-                    src = meta.get_attribute('content')
-                    if src:
-                        return src
-                except:
-                    continue
-            
-            return None
-                
+            full_url = urljoin(self.base_url, url)
+            response = self.session.get(full_url, timeout=15)
+            response.raise_for_status()
+            response.encoding = 'utf-8'
+            return response.text
         except Exception as e:
-            print(f"Ошибка при поиске изображения: {e}")
+            print(f"Ошибка загрузки {url}: {e}")
             return None
 
-    def get_address(self):
-        address = "—"
+    def extract_image_url(self, soup):
+        fotorama = soup.find('div', class_='fotorama')
+        if fotorama:
+            for img in fotorama.find_all('img'):
+                src = img.get('src')
+                if src and 'peterburg.center' in src:
+                    return src
+                data_src = img.get('data-src')
+                if data_src and 'peterburg.center' in data_src:
+                    return data_src
         
-        try:
-            address_selectors = [
-                '//div[contains(@class, "field-name-field-address")]//div[contains(@class, "field-item")]',
-                '//div[contains(@class, "field-name-field-address")]',
-                '//div[contains(@class, "field-label")][contains(., "Адрес")]/following-sibling::div[contains(@class, "field-items")]',
-            ]
-            
-            for selector in address_selectors:
-                try:
-                    elements = self.driver.find_elements(By.XPATH, selector)
-                    for element in elements:
-                        text = element.text.strip()
-                        if text and len(text) > 5:
-                            cleaned = re.sub(r'^Адрес:\s*', '', text, flags=re.IGNORECASE)
-                            cleaned = re.sub(r'^\s*Адрес\s*', '', cleaned, flags=re.IGNORECASE)
-                            cleaned = cleaned.strip()
-                            if cleaned and len(cleaned) > 5:
-                                return clean_text(cleaned)
-                except Exception as e:
-                    continue
-            
-            try:
-                elements_with_address = self.driver.find_elements(By.XPATH, '//*[contains(text(), "Адрес:")]')
-                for element in elements_with_address:
-                    text = element.text.strip()
-                    if "Адрес:" in text:
-                        parts = text.split("Адрес:")
-                        if len(parts) > 1:
-                            address_part = parts[1].strip().split('\n')[0].strip()
-                            if address_part and len(address_part) > 5:
-                                return clean_text(address_part)
-            except:
-                pass
-            
-            try:
-                inline_elements = self.driver.find_elements(By.XPATH, '//div[contains(@class, "field-label-inline")]')
-                for element in inline_elements:
-                    text = element.text.strip()
-                    if "Адрес:" in text:
-                        address_match = re.search(r'Адрес:\s*(.+?)(?:\n|$)', text, re.IGNORECASE)
-                        if address_match:
-                            address_part = address_match.group(1).strip()
-                            if address_part and len(address_part) > 5:
-                                return clean_text(address_part)
-            except:
-                pass
-            
-            try:
-                field_items = self.driver.find_elements(By.XPATH, '//div[contains(@class, "field-item")]')
-                for item in field_items:
-                    text = item.text.strip()
-                    if (len(text) > 10 and 
-                        any(keyword in text.lower() for keyword in ['санкт-петербург', 'спб', 'ленинградская', 'ул.', 'улица', 'проспект', 'площадь', 'набережная']) and
-                        not any(exclude in text.lower() for exclude in ['режим работы', 'телефон', 'сайт', 'email'])):
-                    
-                        return clean_text(text)
-            except:
-                pass
-                
-        except Exception as e:
-            print(f"Общая ошибка при поиске адреса: {e}")
+        content_selectors = [
+            '.main-content img',
+            'article img',
+            '.content img',
+            'img.field-name-field-image',
+            'img[alt]'
+        ]
+        
+        for selector in content_selectors:
+            images = soup.select(selector)
+            for img in images:
+                src = img.get('src')
+                if src and 'peterburg.center' in src:
+                    return src
+                data_src = img.get('data-src')
+                if data_src and 'peterburg.center' in data_src:
+                    return data_src
+        
+        meta_selectors = [
+            'meta[property="og:image"]',
+            'meta[name="og:image"]',
+            'meta[property="twitter:image"]'
+        ]
+        
+        for selector in meta_selectors:
+            meta = soup.select_one(selector)
+            if meta:
+                src = meta.get('content')
+                if src:
+                    return src
+        
+        return None
+
+    def get_address(self, soup):
+        address_selectors = [
+            '.field-name-field-address .field-item',
+            '.field-name-field-address',
+            'div.field-label:contains("Адрес") + div.field-items',
+            '.field-label-inline:contains("Адрес")'
+        ]
+        
+        for selector in address_selectors:
+            elements = soup.select(selector)
+            for element in elements:
+                text = element.get_text(strip=True)
+                text = re.sub(r'^Адрес:\s*', '', text, flags=re.IGNORECASE).strip()
+                if text and len(text) > 5:
+                    return clean_text(text)
+        
+        for element in soup.find_all(string=re.compile("Адрес:")):
+            parent = element.parent
+            if parent:
+                text = parent.get_text(strip=True)
+                parts = text.split("Адрес:")
+                if len(parts) > 1:
+                    address_part = parts[1].strip().split('\n')[0].strip()
+                    if address_part and len(address_part) > 5:
+                        return clean_text(address_part)
+        
+        for item in soup.select('.field-item'):
+            text = item.get_text(strip=True)
+            if (len(text) > 10 and 
+                any(keyword in text.lower() for keyword in ['санкт-петербург', 'спб', 'ленинградская', 'ул.', 'улица', 'проспект', 'площадь', 'набережная', 'г. павловск']) and
+                not any(exclude in text.lower() for exclude in ['режим работы', 'телефон', 'сайт', 'email'])):
+                return clean_text(text)
         
         return "—"
-    
-    def get_work_time(self):
+
+    def get_work_time(self, soup):
         work_time_info = []
         
-        try:
-            schedule_headers = self.driver.find_elements(
-                By.XPATH, 
-                '//h2[contains(text(), "Режим работы") or contains(text(), "Время работы")] | //h3[contains(text(), "Режим работы") or contains(text(), "Время работы")]'
-            )
-            
-            for header in schedule_headers:
-                try:
-                    parent = header.find_element(By.XPATH, '..')
-                    parent_text = parent.text
-                    
-                    header_text = header.text
-                    work_text = parent_text.split(header_text)[-1].strip()
-                    
-                    lines = work_text.split('\n')
-                    for line in lines[:10]:  
-                        line = line.strip()
-                        if line and len(line) > 5:
-                            if any(indicator in line for indicator in [':', '—', 'работает', 'касса', 'выходной', 'понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота', 'воскресенье']):
-                                work_time_info.append(line)
-                    
-                    break  
-                    
-                except Exception as e:
-                    continue
-                    
-        except Exception as e:
-            pass
+        for header in soup.find_all(['h2', 'h3', 'h4']):
+            header_text = header.get_text()
+            if any(word in header_text.lower() for word in ['режим работы', 'время работы', 'часы работы']):
+                current = header.find_next()
+                collected = []
+                while current and len(collected) < 15:  
+                    if current.name in ['h2', 'h3', 'h4'] and current != header:
+                        break
+                    if current.name in ['p', 'ul', 'li', 'div']:
+                        text = current.get_text(strip=True)
+                        if text and len(text) > 3:
+                            collected.append(text)
+                    current = current.find_next()
+                
+                if collected:
+                    work_time_info.extend(collected[:8])
+                    break
         
         if not work_time_info:
-            try:
-                list_items = self.driver.find_elements(By.TAG_NAME, 'li')
-                for item in list_items:
-                    text = item.text.strip()
-                    if (any(keyword in text.lower() for keyword in ['музей работает', 'работает:', 'касса работает', 'выходной']) or
-                        (any(day in text.lower() for day in ['понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота', 'воскресенье']) and 
-                        any(time_indicator in text for time_indicator in [':', '—', '00']))):
+            for li in soup.find_all('li'):
+                text = li.get_text(strip=True)
+                if (any(keyword in text.lower() for keyword in ['работает', 'касса', 'выходной', 'бесплатный', 'вход']) or
+                    any(day in text.lower() for day in ['понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота', 'воскресенье'])):
+                    if any(time_indicator in text for time_indicator in [':', '—', '00', 'часов', 'время']):
                         work_time_info.append(text)
-            except:
-                pass
         
         if work_time_info:
-            
-            result = '\n'.join(work_time_info[:8])  
+            result = '\n'.join(work_time_info[:8])
             if len(result) > 400:
                 result = result[:400] + "..."
             return clean_text(result)
         
         return "—"
 
-    def get_description(self):
+    def get_description(self, soup):
         description = "—"
         
-        try:
-            body_text = self.driver.find_element(By.TAG_NAME, 'body').text
+        body_element = soup.find('div', class_='field-name-body')
+        if body_element:
+            paragraphs = body_element.find_all('p')
+            desc_texts = []
+            for p in paragraphs:
+                text = p.get_text(strip=True)
+                if len(text) > 50 and not any(exclude in text.lower() for exclude in [
+                    'режим работы', 'время работы', 'расписание', 'цена',
+                    'билет', 'стоимость', 'руб.', 'заказ экскурсий',
+                    'адрес', 'телефон', 'сайт', 'email', '@'
+                ]):
+                    desc_texts.append(text)
             
-            if 'Официальный сайт' in body_text or 'Телефон' in body_text:
-                sections = re.split(r'Официальный сайт|Телефон/факс|Телефон', body_text)
-                
-                if len(sections) > 1:
-                    after_contacts = sections[-1]
-                    
-                    lines = after_contacts.split('\n')
-                    for line in lines:
-                        line_clean = line.strip()
-                        if (len(line_clean) > 80 and 
-                            not any(exclude in line_clean.lower() for exclude in [
-                                'режим работы', 'время работы', 'расписание', 'цена',
-                                'билет', 'стоимость', 'руб.', 'заказ экскурсий',
-                                'адрес', 'телефон', 'сайт', 'email', '@'
-                            ]) and
-                            any(desc_word in line_clean.lower() for desc_word in [
-                                'является', 'служил', 'расположен', 'находится',
-                                'образцом', 'площадь', 'река', 'парк', 'дворец',
-                                'музей', 'архитектур', 'истори', 'культур',
-                                'композиционным', 'ансамбль', 'резиденция',
-                                'история', 'создания', 'построен', 'основан'  
-                            ])):
-                            
-                            description = line_clean
-                            break
-            
-            if description == "—":
-                content_selectors = [
-                    '//div[contains(@class, "field-name-body")]',
-                    '//div[contains(@class, "content")]',
-                    '//div[contains(@class, "description")]',
-                    '//article',
-                    '//main',
-                    '//div[contains(@class, "text-content")]',  
-                    '//div[contains(@class, "entry-content")]'
-                ]
-                
-                for selector in content_selectors:
-                    elements = self.driver.find_elements(By.XPATH, selector)
-                    for element in elements:
-                        paragraphs = element.find_elements(By.TAG_NAME, 'p')
-                        description_texts = []
-                        
-                        for p in paragraphs:
-                            text = p.text.strip()
-                            if (len(text) > 50 and  
-                                not any(exclude in text.lower() for exclude in [
-                                    'режим работы', 'время работы', 'расписание',
-                                    'телефон', 'сайт', 'цена', 'билет', 'руб.',
-                                    'стоимость', 'адрес:', 'контакты', 'касса'
-                                ])):
-                                
-                                description_texts.append(text)
-                        
-                        if description_texts:
-                            description = ' '.join(description_texts[:3])
-                            break
-                            
-                    if description != "—":
-                        break
+            if desc_texts:
+                description = ' '.join(desc_texts[:3])
         
-        except Exception as e:
-            print(f"Ошибка при получении описания: {e}")
+        if description == "—":
+            content_selectors = [
+                '.content',
+                '.description',
+                'article',
+                'main',
+                '.text-content',
+                '.entry-content'
+            ]
+            
+            for selector in content_selectors:
+                elements = soup.select(selector)
+                for element in elements:
+                    paragraphs = element.find_all('p')
+                    desc_texts = []
+                    for p in paragraphs:
+                        text = p.get_text(strip=True)
+                        if len(text) > 50 and not any(exclude in text.lower() for exclude in [
+                            'режим работы', 'время работы', 'расписание',
+                            'телефон', 'сайт', 'цена', 'билет', 'руб.',
+                            'стоимость', 'адрес:', 'контакты', 'касса'
+                        ]):
+                            desc_texts.append(text)
+                    
+                    if desc_texts:
+                        description = ' '.join(desc_texts[:3])
+                        break
+                
+                if description != "—":
+                    break
         
         return clean_text(description)
 
-    def parse(self):
-        url = "https://peterburg.center/dostoprimechatelnocti"
-        self.driver.get(url)
-        time.sleep(3)
+    def get_category_urls(self):
+        html = self.fetch_html("/dostoprimechatelnocti")
+        if not html:
+            return []
         
-        categories = self.driver.find_elements(By.XPATH, '//div[@class="dropdown-menu"]/a[contains(@href,"category")]')
-        category_urls = [link.get_attribute("href") for link in categories]
+        soup = BeautifulSoup(html, 'html.parser')
+        
+        category_urls = []
+        
+        for a in soup.find_all('a', href=True):
+            href = a['href']
+            if 'category' in href and not any(exclude in href for exclude in ['javascript', '#']):
+                full_url = urljoin(self.base_url, href)
+                if full_url not in category_urls:
+                    category_urls.append(full_url)
+        
+        return category_urls[:10] 
 
+    def get_place_urls_from_category(self, category_url, limit=7):
+        html = self.fetch_html(category_url)
+        if not html:
+            return []
+        
+        soup = BeautifulSoup(html, 'html.parser')
+        place_urls = []
+        
+        cards = soup.find_all('div', class_=re.compile(r'card'))
+        for card in cards[:limit]:
+            a_tag = card.find('a', href=re.compile(r'/maps/'))
+            if a_tag and a_tag.get('href'):
+                full_url = urljoin(self.base_url, a_tag['href'])
+                place_urls.append(full_url)
+        
+        if not place_urls:
+            for a in soup.find_all('a', href=re.compile(r'/maps/')):
+                href = a['href']
+                full_url = urljoin(self.base_url, href)
+                if full_url not in place_urls:
+                    place_urls.append(full_url)
+                    if len(place_urls) >= limit:
+                        break
+        
+        return place_urls
+
+    def parse_place(self, url, category_name):
+        html = self.fetch_html(url)
+        if not html:
+            return None
+        
+        soup = BeautifulSoup(html, 'html.parser')
+        
+        h1 = soup.find('h1', class_='page-title')
+        if not h1:
+            h1 = soup.find('h1')
+        name = h1.get_text(strip=True) if h1 else "—"
+        
+        address = self.get_address(soup)
+        work_time = self.get_work_time(soup)
+        description = self.get_description(soup)
+        image_url = self.extract_image_url(soup)
+        
+        image_filename = None
+        if image_url and name != "—":
+            clean_name = re.sub(r'[^\w\s-]', '', name).strip()
+            image_filename = download_image(image_url, clean_name, self.images_dir)
+        
+        return {
+            "id": str(uuid.uuid4()),
+            "category": category_name,
+            "name": name,
+            "address": address,
+            "work_time": work_time,
+            "description": description,
+            "image_filename": image_filename if image_filename else "default_place.jpg",
+            "source": "peterburg.center",
+            "url": url
+        }
+
+    def parse(self):
         all_data = []
-
-        for category_url in category_urls:
+        
+        category_urls = self.get_category_urls()
+        
+        for i, category_url in enumerate(category_urls, 1):
             try:
-                self.driver.get(category_url)
-                time.sleep(3)
                 
-                try:
-                    category_name = self.driver.find_element(By.TAG_NAME, "h1").text.strip()
-                except:
-                    category_name = "Достопримечательности"
+                html_cat = self.fetch_html(category_url)
+                if not html_cat:
+                    continue
                 
-                try:
-                    cards = self.driver.find_elements(By.XPATH, '//div[contains(@class, "card")]//a[contains(@href, "/maps/")]')[:7]
-                    card_urls = [card.get_attribute("href") for card in cards if card.get_attribute("href")]
-                except:
-                    card_urls = []
+                soup_cat = BeautifulSoup(html_cat, 'html.parser')
+                h1 = soup_cat.find('h1')
+                category_name = h1.get_text(strip=True) if h1 else "Достопримечательности"
                 
-                for i, card_url in enumerate(card_urls, 1):
+                place_urls = self.get_place_urls_from_category(category_url, limit=1)
+                
+                for j, place_url in enumerate(place_urls, 1):
                     try:
-                        self.driver.get(card_url)
-                        time.sleep(3)
                         
-                        try:
-                            name = self.driver.find_element(By.TAG_NAME, "h1").text.strip()
-                        except:
-                            name = "—"
+                        place_data = self.parse_place(place_url, category_name)
+                        if place_data:
+                            all_data.append(place_data)
                         
-                        address = self.get_address()
-                        work_time = self.get_work_time()
-                        description = self.get_description()
-                        
-                        image_url = self.extract_image_url()
-                        image_filename = None
-                        if image_url and name != "—":
-                            image_filename = download_image(image_url, name, self.images_dir)
-                        
-                        place_data = {
-                            "id": str(uuid.uuid4()),
-                            "category": category_name,
-                            "name": name,
-                            "address": address,
-                            "work_time": work_time,
-                            "description": description,
-                            "image_filename": image_filename if image_filename else "default_place.jpg",
-                            "source": "peterburg.center",
-                            "url": card_url
-                        }
-                        
-                        all_data.append(place_data)
+                        time.sleep(1)
                         
                     except Exception as e:
-                        print(f"Ошибка при парсинге карточки: {e}")
+                        print(f" Ошибка: {e}")
                         continue
-                        
+                time.sleep(2)
+                
             except Exception as e:
-                print(f"Ошибка при обработке категории {category_url}: {e}")
+                print(f"Ошибка {category_url}: {e}")
                 continue
-
-        self.driver.quit()
         return all_data
 
 if __name__ == "__main__":
     parser = PeterburgCenterParser()
     results = parser.parse()
-    save_to_json(results, 'places.json')
+    
+    if results:
+        save_to_json(results, 'data/places.json')
+    else:
+        print("Не удалось собрать")

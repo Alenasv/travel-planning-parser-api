@@ -33,16 +33,16 @@ def main():
     
     all_places = []
 
-    kudago_parser = KudagoParser()
+    kudago_parser = KudagoParser(images_dir='data/kudago_images')
     kudago_results = kudago_parser.parse()
     all_places.extend(kudago_results)
 
-    peterburg_parser = PeterburgCenterParser()
+    peterburg_parser = PeterburgCenterParser(images_dir='data/places_images')
     peterburg_results = peterburg_parser.parse()
     all_places.extend(peterburg_results)
 
     if all_places:
-        save_to_json(all_places, 'all_places.json')
+        save_to_json(all_places, 'data/all_places.json')
 
 
 if __name__ == "__main__":

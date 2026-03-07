@@ -487,4 +487,4 @@ class KudagoParser:
 if __name__ == "__main__":
        parser = KudagoParser()
        results = parser.parse()
-       save_to_json(results, 'restaurants.json')
+       save_to_json(results, 'data/restaurants.json')
