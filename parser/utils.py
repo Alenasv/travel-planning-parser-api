@@ -10,34 +10,6 @@ def create_directories(images_dir):
     if not os.path.exists(images_dir):
         os.makedirs(images_dir)
 
-def is_valid_address(text):
-    if not text or len(text) < 5:
-        return False
-    
-    text_lower = text.lower()
-    
-    exclude_patterns = [
-        'режим работы', 'время работы', 'телефон', 'email', 
-        'сайт', 'www.', 'http', 'цена', 'стоимость', 'билет',
-        'метро', 'как добраться', 'расписание', 'график'
-    ]
-    
-    if any(pattern in text_lower for pattern in exclude_patterns):
-        return False
-    
-    include_patterns = [
-        'санкт-петербург', 'спб', 'ленинградская', 'область',
-        'ул.', 'улица', 'проспект', 'пр.', 'набережная', 'наб.',
-        'площадь', 'пл.', 'дом', 'д.', 'г.', 'город', 'мост', 'парк', 'сад'
-    ]
-    
-    if any(pattern in text_lower for pattern in include_patterns):
-        return True
-    
-    if len(text) > 15 and (',' in text or '.' in text):
-        return True
-    
-    return True 
 
 def clean_text(text):
     if not text or text == "—":
@@ -149,12 +121,24 @@ def is_valid_address(text):
 
 def save_to_json(results, filename):
     try:
+        os.makedirs(os.path.dirname(filename), exist_ok=True)
+
         with open(filename, 'w', encoding='utf-8') as f:
             json.dump(results, f, ensure_ascii=False, indent=2)
         return True
     except Exception as e:
         print(f"Ошибка при сохранении в JSON: {e}")
         return False
+
+
+def normalize_field(value, default="-"):
+    if value is None:
+        return default
+    if isinstance(value, str):
+        if value.strip() == "" or value.strip() == "—":
+            return default
+        return value.strip()
+    return value
 
 def merge_json_files(files, output_file='all_places.json'):
     all_data = []
@@ -170,3 +154,21 @@ def merge_json_files(files, output_file='all_places.json'):
     if save_to_json(all_data, output_file):
         return True
     return False
+
+CATEGORY_MAPPING = {
+    "Музеи": "Музеи и галереи",
+    "Соборы": "Религиозные сооружения",
+    "Церкви": "Религиозные сооружения",
+    "Храмы": "Религиозные сооружения",
+    "Монастыри": "Религиозные сооружения",
+    "Дома": "Дома культуры",
+    "Реки и каналы": "Природные объекты",
+    "Природный заповедник": "Природные объекты",
+    "Активный отдых": "Природные объекты",
+    "Памятники Санкт-Петербурга": "Памятники и достопримечательности",
+    "Достопримечательности": "Памятники и достопримечательности",
+    "Интересные места": "Памятники и достопримечательности",
+}
+
+def map_category(category_name):
+    return CATEGORY_MAPPING.get(category_name, category_name)

@@ -6,8 +6,8 @@ import shutil
 
 
 def cleanup_previous_data():
-    json_files = ['all_places.json', 'restaurants.json', 'places.json']
-    image_dirs = ['kudago_images', 'places_images']
+    json_files = ['data/all_places.json', 'data/restaurants.json', 'data/places.json']
+    image_dirs = ['data/kudago_images', 'data/places_images']
     
     deleted_files = 0
     for json_file in json_files:
@@ -27,13 +27,15 @@ def cleanup_previous_data():
             except Exception as e:
                 print(f"Не удалось удалить {image_dir}: {e}")
 
+
+
 def main():
 
     cleanup_previous_data()
     
     all_places = []
 
-    kudago_parser = KudagoParser(images_dir='data/kudago_images')
+    kudago_parser = KudagoParser(location="spb")
     kudago_results = kudago_parser.parse()
     all_places.extend(kudago_results)
 

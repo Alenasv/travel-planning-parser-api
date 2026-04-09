@@ -4,7 +4,7 @@ import re
 import uuid
 import time
 from urllib.parse import urljoin
-from parser.utils import create_directories, clean_text, download_image, save_to_json
+from parser.utils import create_directories, clean_text, download_image, save_to_json, map_category
 
 class PeterburgCenterParser:
     def __init__(self, images_dir='places_images'):
@@ -264,10 +264,11 @@ class PeterburgCenterParser:
         if image_url and name != "—":
             clean_name = re.sub(r'[^\w\s-]', '', name).strip()
             image_filename = download_image(image_url, clean_name, self.images_dir)
-        
+
+        mapped_category = map_category(category_name)
         return {
             "id": str(uuid.uuid4()),
-            "category": category_name,
+            "category": mapped_category,
             "name": name,
             "address": address,
             "work_time": work_time,
