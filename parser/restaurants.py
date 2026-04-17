@@ -2,7 +2,7 @@ import requests
 import uuid
 import time
 import os
-from parser.utils import save_to_json, download_image,map_category
+from parser.utils import save_to_json, download_image,map_category,clean_text
 
 class KudagoParser:
     BASE_URL = "https://kudago.com/public-api/v1.4"
@@ -51,12 +51,12 @@ class KudagoParser:
                 image_filename = os.path.join("kudago_images", os.path.basename(image_filename))
         mapped_category = map_category(category_name)
         return {
-            "id": str(uuid.uuid4()),
+            "id": f"kudago_{place.get('id')}",
             "name": place.get("title"),
             "address": place.get("address") or "—",
             "coords": place.get("coords"),
             "metro": place.get("subway") or "—",
-            "description": place.get("description") or "—",
+            "description": clean_text(place.get("description") or "—"),
             "tags": place.get("tags", []),  
             "category": mapped_category,
             "work_time": "-",

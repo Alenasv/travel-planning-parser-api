@@ -4,6 +4,7 @@ import uuid
 import requests
 from urllib.parse import urlparse
 import json
+import html
 from transliterate import translit
 
 def create_directories(images_dir):
@@ -14,11 +15,15 @@ def create_directories(images_dir):
 def clean_text(text):
     if not text or text == "—":
         return text
-    
+
+    text = html.unescape(text)
+
+    text = re.sub(r"<[^>]+>", "", text)
+
     lines = text.split('\n')
     cleaned_lines = [re.sub(r'[ \t]+', ' ', line).strip() for line in lines]
-    cleaned_lines = [line for line in cleaned_lines if line]  
-    
+    cleaned_lines = [line for line in cleaned_lines if line]
+
     return '\n'.join(cleaned_lines)
 
 def download_image(image_url, place_name, images_dir):

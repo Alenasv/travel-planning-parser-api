@@ -3,6 +3,7 @@ from parser.attractions import PeterburgCenterParser
 from parser.utils import save_to_json
 import os
 import shutil
+from db.database import insert_places
 
 
 def cleanup_previous_data():
@@ -27,7 +28,16 @@ def cleanup_previous_data():
             except Exception as e:
                 print(f"Не удалось удалить {image_dir}: {e}")
 
+def deduplicate(data):
+    seen = {}
 
+    for item in data:
+        key = item.get("id")
+
+        if key and key not in seen:
+            seen[key] = item
+
+    return list(seen.values())
 
 def main():
 
@@ -43,8 +53,17 @@ def main():
     peterburg_results = peterburg_parser.parse()
     all_places.extend(peterburg_results)
 
+    for item in all_places:
+        item["tags"] = item.get("tags") or []
+        item["coords"] = item.get("coords") or {}
+
+
+    all_places = deduplicate(all_places)
+
     if all_places:
         save_to_json(all_places, 'data/all_places.json')
+
+        insert_places(all_places)
 
 
 if __name__ == "__main__":

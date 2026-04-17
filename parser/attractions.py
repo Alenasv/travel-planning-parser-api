@@ -267,7 +267,7 @@ class PeterburgCenterParser:
 
         mapped_category = map_category(category_name)
         return {
-            "id": str(uuid.uuid4()),
+            "id": f"peterburg_{url.split('/')[-1]}",
             "category": mapped_category,
             "name": name,
             "address": address,
