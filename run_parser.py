@@ -5,7 +5,6 @@ import os
 import shutil
 from db.database import insert_places
 
-
 def cleanup_previous_data():
     json_files = ['data/all_places.json', 'data/restaurants.json', 'data/places.json']
     image_dirs = ['data/kudago_images', 'data/places_images']

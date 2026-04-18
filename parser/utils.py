@@ -84,22 +84,21 @@ def download_image(image_url, place_name, images_dir):
             if response.status_code == 200:
                 with open(filepath, 'wb') as f:
                     for chunk in response.iter_content(chunk_size=8192):
-                        if chunk:
+                         if chunk:
                             f.write(chunk)
-                
+
                 file_size = os.path.getsize(filepath)
-                if file_size > 1000:  
+                if file_size > 1000:
                     return f"{images_dir}/{filename}"
                 else:
                     os.remove(filepath)
                     return None
+
+            elif response.status_code == 404:
+                print(f"Картинка не найдена (404): {clean_url}")
+                return None
             else:
                 print(f"Ошибка загрузки {clean_url}: {response.status_code}")
-                
-                if '/xl/' in image_url:
-                    medium_url = image_url.replace('/xl/', '/large/')
-                    return download_image(medium_url, place_name, images_dir)
-                
                 return None
                 
         except requests.exceptions.Timeout:
@@ -119,7 +118,7 @@ def is_valid_address(text):
     indicators = [
         'ул.', 'улица', 'пр.', 'проспект', 'наб.', 'набережная',
         'Санкт-Петербург', 'спб', 'д.', 'дом', 'площадь', 'аллея', 'бульвар',
-        'линия', 'остров', 'переулок', 'пер.', 'шоссе', 'проезд'
+        'линия', 'остров', 'переулок', 'пер.', 'шоссе', 'проезд','наб', 'пер', 'пр-кт'
     ]
     text_lower = text.lower()
     return any(indicator in text_lower for indicator in indicators)
