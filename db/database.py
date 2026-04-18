@@ -1,13 +1,15 @@
 import psycopg2
 from psycopg2.extras import execute_values, Json
+from dotenv import load_dotenv
+import os
 
-
+load_dotenv()
 DB_CONFIG = {
-    "dbname": "test01",
-    "user": "postgres",
-    "password": "dctvghbdtn200HFP!",
-    "host": "45.150.11.208",
-    "port": 5432
+    "dbname": os.getenv("DB_NAME"),
+    "user": os.getenv("DB_USER"),
+    "password": os.getenv("DB_PASSWORD"),
+    "host": os.getenv("DB_HOST"),
+    "port": os.getenv("DB_PORT")
 }
 
 def get_conn():
