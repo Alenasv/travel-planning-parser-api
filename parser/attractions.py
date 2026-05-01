@@ -5,6 +5,7 @@ import uuid
 import time
 from urllib.parse import urljoin
 from parser.utils import create_directories, clean_text, download_image, save_to_json, map_category
+from parser.geo_utils import geocode,nearest_metro,normalize_metro,METRO_STATIONS
 
 class PeterburgCenterParser:
     def __init__(self, images_dir='places_images'):
@@ -259,7 +260,18 @@ class PeterburgCenterParser:
         work_time = self.get_work_time(soup)
         description = self.get_description(soup)
         image_url = self.extract_image_url(soup)
-        
+        coords = geocode(address)
+
+        metro_name = None
+        metro_distance = None
+
+        if coords:
+            metro_raw, metro_distance = nearest_metro(
+                coords["lat"],
+                coords["lon"]
+            )
+
+            metro_name = normalize_metro(metro_raw)
         image_filename = None
         if image_url and name != "—":
             clean_name = re.sub(r'[^\w\s-]', '', name).strip()
@@ -273,6 +285,12 @@ class PeterburgCenterParser:
             "address": address,
             "work_time": work_time,
             "description": description,
+            "tags": self.generate_tags(name, description, mapped_category),
+
+            "coords": coords or {},
+            "metro": metro_name,
+            "metro_distance_km": metro_distance,
+
             "image_filename": image_filename if image_filename else "default_place.jpg",
             "source": "peterburg.center",
             "url": url
@@ -314,6 +332,32 @@ class PeterburgCenterParser:
                 print(f"Ошибка {category_url}: {e}")
                 continue
         return all_data
+    
+    def generate_tags(self, name, description, category):
+        text = f"{name} {description} {category}".lower()
+
+        tags = set()
+
+        rules = {
+            "дети": ["детям", "ребёнок", "семь", "школь", "дошколь", "сказк"],
+            "музеи": ["музей", "экспози", "выстав"],
+            "театр": ["театр", "спектак", "постанов"],
+            "религия": ["собор", "храм", "церковь", "монастыр"],
+            "парк": ["парк", "сад", "аллея"],
+            "история": ["истор", "памятник", "эпох", "романов"],
+            "вид": ["вид", "панорам", "смотров"],
+            "экскурсии": ["экскурс"],
+            "бесплатно": ["бесплат"],
+        }
+
+        for tag, keywords in rules.items():
+            if any(k in text for k in keywords):
+                tags.add(tag)
+
+        if not tags:
+            tags.add(category.lower())
+
+        return list(tags)
 
 if __name__ == "__main__":
     parser = PeterburgCenterParser()

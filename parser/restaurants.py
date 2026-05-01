@@ -44,6 +44,10 @@ class KudagoParser:
     def format_place(self, place, category_name):
         images = place.get("images", [])
         image_url = images[0]["image"] if images else None
+        image_url = images[0]["image"] if images else None
+
+        if not image_url:
+            return None
         image_filename = None
         if image_url:
             image_filename = download_image(image_url, place.get("title"), self.images_dir)
