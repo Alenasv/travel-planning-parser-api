@@ -151,3 +151,21 @@ def nearest_metro(lat, lon):
         return None, None
 
     return best["name"], round(best_dist, 2)
+
+def geo_key(coords):
+    if not coords:
+        return None
+
+    lat = coords.get("lat")
+    lon = coords.get("lon")
+
+    if lat is None or lon is None:
+        return None
+
+    try:
+        lat = round(float(lat), 3)
+        lon = round(float(lon), 3)
+    except (TypeError, ValueError):
+        return None
+
+    return f"{lat}_{lon}"

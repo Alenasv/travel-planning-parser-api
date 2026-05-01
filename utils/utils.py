@@ -6,11 +6,17 @@ from urllib.parse import urlparse
 import json
 import html
 from transliterate import translit
+from utils.geo_utils import geo_key
 
-def create_directories(images_dir):
-    if not os.path.exists(images_dir):
-        os.makedirs(images_dir)
+def normalize_name(name):
+    if not name:
+        return ""
 
+    name = name.lower()
+    name = re.sub(r'[^a-zа-я0-9 ]', '', name)
+    name = re.sub(r'\s+', ' ', name).strip()
+
+    return name
 
 def clean_text(text):
     if not text or text == "—":
@@ -111,17 +117,6 @@ def download_image(image_url, place_name, images_dir):
         print(f"Ошибка при загрузке изображения {image_url}: {e}")
         return None
 
-def is_valid_address(text):
-    if not text or len(text) < 10:
-        return False
-    
-    indicators = [
-        'ул.', 'улица', 'пр.', 'проспект', 'наб.', 'набережная',
-        'Санкт-Петербург', 'спб', 'д.', 'дом', 'площадь', 'аллея', 'бульвар',
-        'линия', 'остров', 'переулок', 'пер.', 'шоссе', 'проезд','наб', 'пер', 'пр-кт'
-    ]
-    text_lower = text.lower()
-    return any(indicator in text_lower for indicator in indicators)
 
 def save_to_json(results, filename):
     try:
@@ -135,44 +130,38 @@ def save_to_json(results, filename):
         return False
 
 
-def normalize_field(value, default="-"):
-    if value is None:
-        return default
-    if isinstance(value, str):
-        if value.strip() == "" or value.strip() == "—":
-            return default
-        return value.strip()
-    return value
-
-def merge_json_files(files, output_file='all_places.json'):
-    all_data = []
-    
-    for file in files:
-        try:
-            with open(file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                all_data.extend(data)
-        except Exception as e:
-            print(f"Ошибка при загрузке {file}: {e}")
-    
-    if save_to_json(all_data, output_file):
-        return True
-    return False
-
-CATEGORY_MAPPING = {
-    "Музеи": "Музеи и галереи",
-    "Соборы": "Религиозные сооружения",
-    "Церкви": "Религиозные сооружения",
-    "Храмы": "Религиозные сооружения",
-    "Монастыри": "Религиозные сооружения",
-    "Дома": "Дома культуры",
-    "Реки и каналы": "Природные объекты",
-    "Природный заповедник": "Природные объекты",
-    "Активный отдых": "Природные объекты",
-    "Памятники Санкт-Петербурга": "Памятники и достопримечательности",
-    "Достопримечательности": "Памятники и достопримечательности",
-    "Интересные места": "Памятники и достопримечательности",
+CATEGORY_GROUPS = {
+    "Еда и напитки": ["бар", "паб", "ресторан", "кафе", "пивовар"],
+    "Развлечения": ["клуб", "театр", "кино", "концерт", "антикафе"],
+    "Культура": ["музей", "галере"],
+    "Природа": ["парк", "река", "канал", "сад"],
+    "История": ["памятник", "дворец", "мост", "фонтан", "усадьба"],
+    "Религия": ["храм", "церковь", "собор", "монастыр"],
 }
 
-def map_category(category_name):
-    return CATEGORY_MAPPING.get(category_name, category_name)
+def map_category(category_name: str) -> str:
+    if not category_name:
+        return "Другое"
+
+    cat = category_name.lower()
+
+    for group, keywords in CATEGORY_GROUPS.items():
+        if any(k in cat for k in keywords):
+            return group
+
+    return "Другое"
+
+def make_key(item):
+    name = normalize_name(item.get("name"))
+
+    coords = item.get("coords")
+
+    geo = None
+    if coords and isinstance(coords, dict):
+        lat = coords.get("lat")
+        lon = coords.get("lon")
+
+        if lat is not None and lon is not None:
+            geo = geo_key(coords)
+
+    return f"{name}_{geo}" if geo else name

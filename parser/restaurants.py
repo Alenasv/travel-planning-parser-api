@@ -2,7 +2,7 @@ import requests
 import uuid
 import time
 import os
-from parser.utils import save_to_json, download_image,map_category,clean_text
+from utils.utils import save_to_json, download_image,map_category,clean_text
 
 class KudagoParser:
     BASE_URL = "https://kudago.com/public-api/v1.4"

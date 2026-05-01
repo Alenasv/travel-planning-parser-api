@@ -1,9 +1,10 @@
 from parser.restaurants import KudagoParser
 from parser.attractions import PeterburgCenterParser
-from parser.utils import save_to_json
+from utils.utils import save_to_json,normalize_name,make_key
 import os
 import shutil
 from db.database import insert_places
+from collections import Counter
 
 def cleanup_previous_data():
     json_files = ['data/all_places.json', 'data/restaurants.json', 'data/places.json']
@@ -27,13 +28,22 @@ def cleanup_previous_data():
             except Exception as e:
                 print(f"Не удалось удалить {image_dir}: {e}")
 
+
 def deduplicate(data):
     seen = {}
 
     for item in data:
-        key = item.get("id")
+        key = make_key(item)
+        if not key:
+            continue
 
-        if key and key not in seen:
+        prev = seen.get(key)
+
+        if not prev:
+            seen[key] = item
+            continue
+
+        if len(item.get("description", "")) > len(prev.get("description", "")):
             seen[key] = item
 
     return list(seen.values())
@@ -47,6 +57,7 @@ def main():
     kudago_parser = KudagoParser(location="spb")
     kudago_results = kudago_parser.parse()
     all_places.extend(kudago_results)
+    
 
     peterburg_parser = PeterburgCenterParser(images_dir='data/places_images')
     peterburg_results = peterburg_parser.parse()
@@ -58,7 +69,6 @@ def main():
 
 
     all_places = deduplicate(all_places)
-
     if all_places:
         save_to_json(all_places, 'data/all_places.json')
 

@@ -1,11 +1,12 @@
 import requests
+import os
 from bs4 import BeautifulSoup
 import re
 import uuid
 import time
 from urllib.parse import urljoin
-from parser.utils import create_directories, clean_text, download_image, save_to_json, map_category
-from parser.geo_utils import geocode,nearest_metro,normalize_metro,METRO_STATIONS
+from utils.utils import clean_text, download_image, save_to_json, map_category
+from utils.geo_utils import geocode,nearest_metro,normalize_metro,METRO_STATIONS
 
 class PeterburgCenterParser:
     def __init__(self, images_dir='places_images'):
@@ -19,7 +20,7 @@ class PeterburgCenterParser:
         }
         self.session = requests.Session()
         self.session.headers.update(self.headers)
-        create_directories(images_dir)
+        os.makedirs(images_dir, exist_ok=True)
 
     def fetch_html(self, url):
         try:
