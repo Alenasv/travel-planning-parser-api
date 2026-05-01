@@ -4,49 +4,26 @@ import uuid
 import requests
 from urllib.parse import urlparse
 import json
+import html
 from transliterate import translit
 
 def create_directories(images_dir):
     if not os.path.exists(images_dir):
         os.makedirs(images_dir)
 
-def is_valid_address(text):
-    if not text or len(text) < 5:
-        return False
-    
-    text_lower = text.lower()
-    
-    exclude_patterns = [
-        'режим работы', 'время работы', 'телефон', 'email', 
-        'сайт', 'www.', 'http', 'цена', 'стоимость', 'билет',
-        'метро', 'как добраться', 'расписание', 'график'
-    ]
-    
-    if any(pattern in text_lower for pattern in exclude_patterns):
-        return False
-    
-    include_patterns = [
-        'санкт-петербург', 'спб', 'ленинградская', 'область',
-        'ул.', 'улица', 'проспект', 'пр.', 'набережная', 'наб.',
-        'площадь', 'пл.', 'дом', 'д.', 'г.', 'город', 'мост', 'парк', 'сад'
-    ]
-    
-    if any(pattern in text_lower for pattern in include_patterns):
-        return True
-    
-    if len(text) > 15 and (',' in text or '.' in text):
-        return True
-    
-    return True 
 
 def clean_text(text):
     if not text or text == "—":
         return text
-    
+
+    text = html.unescape(text)
+
+    text = re.sub(r"<[^>]+>", "", text)
+
     lines = text.split('\n')
     cleaned_lines = [re.sub(r'[ \t]+', ' ', line).strip() for line in lines]
-    cleaned_lines = [line for line in cleaned_lines if line]  
-    
+    cleaned_lines = [line for line in cleaned_lines if line]
+
     return '\n'.join(cleaned_lines)
 
 def download_image(image_url, place_name, images_dir):
@@ -107,22 +84,21 @@ def download_image(image_url, place_name, images_dir):
             if response.status_code == 200:
                 with open(filepath, 'wb') as f:
                     for chunk in response.iter_content(chunk_size=8192):
-                        if chunk:
+                         if chunk:
                             f.write(chunk)
-                
+
                 file_size = os.path.getsize(filepath)
-                if file_size > 1000:  
+                if file_size > 1000:
                     return f"{images_dir}/{filename}"
                 else:
                     os.remove(filepath)
                     return None
+
+            elif response.status_code == 404:
+                print(f"Картинка не найдена (404): {clean_url}")
+                return None
             else:
                 print(f"Ошибка загрузки {clean_url}: {response.status_code}")
-                
-                if '/xl/' in image_url:
-                    medium_url = image_url.replace('/xl/', '/large/')
-                    return download_image(medium_url, place_name, images_dir)
-                
                 return None
                 
         except requests.exceptions.Timeout:
@@ -142,19 +118,31 @@ def is_valid_address(text):
     indicators = [
         'ул.', 'улица', 'пр.', 'проспект', 'наб.', 'набережная',
         'Санкт-Петербург', 'спб', 'д.', 'дом', 'площадь', 'аллея', 'бульвар',
-        'линия', 'остров', 'переулок', 'пер.', 'шоссе', 'проезд'
+        'линия', 'остров', 'переулок', 'пер.', 'шоссе', 'проезд','наб', 'пер', 'пр-кт'
     ]
     text_lower = text.lower()
     return any(indicator in text_lower for indicator in indicators)
 
 def save_to_json(results, filename):
     try:
+        os.makedirs(os.path.dirname(filename), exist_ok=True)
+
         with open(filename, 'w', encoding='utf-8') as f:
             json.dump(results, f, ensure_ascii=False, indent=2)
         return True
     except Exception as e:
         print(f"Ошибка при сохранении в JSON: {e}")
         return False
+
+
+def normalize_field(value, default="-"):
+    if value is None:
+        return default
+    if isinstance(value, str):
+        if value.strip() == "" or value.strip() == "—":
+            return default
+        return value.strip()
+    return value
 
 def merge_json_files(files, output_file='all_places.json'):
     all_data = []
@@ -170,3 +158,21 @@ def merge_json_files(files, output_file='all_places.json'):
     if save_to_json(all_data, output_file):
         return True
     return False
+
+CATEGORY_MAPPING = {
+    "Музеи": "Музеи и галереи",
+    "Соборы": "Религиозные сооружения",
+    "Церкви": "Религиозные сооружения",
+    "Храмы": "Религиозные сооружения",
+    "Монастыри": "Религиозные сооружения",
+    "Дома": "Дома культуры",
+    "Реки и каналы": "Природные объекты",
+    "Природный заповедник": "Природные объекты",
+    "Активный отдых": "Природные объекты",
+    "Памятники Санкт-Петербурга": "Памятники и достопримечательности",
+    "Достопримечательности": "Памятники и достопримечательности",
+    "Интересные места": "Памятники и достопримечательности",
+}
+
+def map_category(category_name):
+    return CATEGORY_MAPPING.get(category_name, category_name)
