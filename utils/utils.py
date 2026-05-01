@@ -6,13 +6,17 @@ from urllib.parse import urlparse
 import json
 import html
 from transliterate import translit
-from utils.geo_utils import geo_key
+from utils.geo_utils import geo_key,distance
+from difflib import SequenceMatcher
 
 def normalize_name(name):
     if not name:
         return ""
 
     name = name.lower()
+
+    name = re.sub(r"(музей|памятник|театр)", "", name)
+
     name = re.sub(r'[^a-zа-я0-9 ]', '', name)
     name = re.sub(r'\s+', ' ', name).strip()
 
@@ -132,10 +136,10 @@ def save_to_json(results, filename):
 
 CATEGORY_GROUPS = {
     "Еда и напитки": ["бар", "паб", "ресторан", "кафе", "пивовар"],
-    "Развлечения": ["клуб", "театр", "кино", "концерт", "антикафе"],
-    "Культура": ["музей", "галере"],
+    "Развлечения": ["клуб", "театр", "кино", "концерт", "антикафе", "развлеч"],
+    "Культура": ["музей", "галере", "выстав", "искусств"],
     "Природа": ["парк", "река", "канал", "сад"],
-    "История": ["памятник", "дворец", "мост", "фонтан", "усадьба"],
+    "История": ["памятник", "дворец", "мост", "фонтан", "усадьба", "архитект"],
     "Религия": ["храм", "церковь", "собор", "монастыр"],
 }
 
@@ -165,3 +169,58 @@ def make_key(item):
             geo = geo_key(coords)
 
     return f"{name}_{geo}" if geo else name
+
+def similar(a, b):
+    return SequenceMatcher(None, a, b).ratio()
+
+
+def is_same_place(a, b):
+    name_a = normalize_name(a.get("name"))
+    name_b = normalize_name(b.get("name"))
+
+    name_score = similar(name_a, name_b)
+
+    coords_a = a.get("coords") or {}
+    coords_b = b.get("coords") or {}
+
+    lat1 = coords_a.get("lat")
+    lon1 = coords_a.get("lon")
+    lat2 = coords_b.get("lat")
+    lon2 = coords_b.get("lon")
+
+    dist = None
+
+    if all(v is not None for v in [lat1, lon1, lat2, lon2]):
+        dist = distance(lat1, lon1, lat2, lon2)
+
+    if name_score > 0.75:
+        return True
+
+    if dist is not None and dist < 0.2:
+        return True
+
+    if name_score > 0.6 and dist is not None and dist < 0.5:
+        return True
+
+    return False
+
+
+def deduplicate(data):
+    unique = []
+
+    for item in data:
+        duplicate_found = False
+
+        for i, existing in enumerate(unique):
+            if is_same_place(item, existing):
+
+                if len(item.get("description", "")) > len(existing.get("description", "")):
+                    unique[i] = item
+
+                duplicate_found = True
+                break
+
+        if not duplicate_found:
+            unique.append(item)
+
+    return unique

@@ -1,12 +1,20 @@
 from sentence_transformers import SentenceTransformer
 import numpy as np
-from sklearn.metrics.pairwise import cosine_similarity
+
 
 class PlacesRecommender:
-    def __init__(self, places):
+    def __init__(self, places, weights=None):
         self.places = places
 
         self.model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
+
+        self.weights = weights or {
+            "embedding": 1.0,
+            "metro_match": 0.8,
+            "distance": 0.8,
+            "category": 1.0,
+            "tags": 0.5,
+        }
 
         docs = [self.build_text(p) for p in places]
 
@@ -16,18 +24,18 @@ class PlacesRecommender:
             show_progress_bar=True,
             normalize_embeddings=True
         )
-    
+
     def build_text(self, place):
         parts = []
 
         if place.get("name"):
-            parts.append(place["name"])
+            parts.append((place["name"] + " ") * 2)
 
         if place.get("category"):
-            parts.append(place["category"])
+            parts.append((place["category"] + " ") * 2)
 
         if place.get("tags"):
-            parts.extend(place["tags"])
+            parts.append(" ".join(place["tags"]))
 
         if place.get("description") and place["description"] != "—":
             parts.append(place["description"])
@@ -37,8 +45,33 @@ class PlacesRecommender:
 
         return " ".join(parts)
 
-    def recommend(self, user_preferences, top_k=10):
+    def compute_features(self, place, user_prefs_lower):
+        features = {
+            "metro_match": 0.0,
+            "distance": 0.0,
+            "category": 0.0,
+            "tags": 0.0,
+        }
 
+        metro = (place.get("metro") or "").lower()
+        if any(p in metro for p in user_prefs_lower):
+            features["metro_match"] = 1.0
+
+        dist = place.get("metro_distance_km")
+        if isinstance(dist, (int, float)):
+            features["distance"] = max(0, 1 - dist * 0.5)
+
+        category = (place.get("category") or "").lower()
+        if any(p in category for p in user_prefs_lower):
+            features["category"] = 1.0
+
+        tags = " ".join(place.get("tags", [])).lower()
+        if any(p in tags for p in user_prefs_lower):
+            features["tags"] = 1.0
+
+        return features
+
+    def recommend(self, user_preferences, top_k=10):
         query = self.normalize_query(user_preferences)
 
         query_vec = self.model.encode(
@@ -46,47 +79,38 @@ class PlacesRecommender:
             normalize_embeddings=True
         )[0]
 
-        scores = np.dot(self.embeddings, query_vec)
+        base_scores = np.dot(self.embeddings, query_vec)
+
+        user_prefs_lower = [p.lower() for p in user_preferences]
 
         results = []
 
         for i, place in enumerate(self.places):
-            score = float(scores[i])
+            score = base_scores[i] * self.weights["embedding"]
 
-            metro = place.get("metro")
-            if metro:
-                for p in user_preferences:
-                    if p.lower() in metro.lower():
-                        score += 0.5
+            features = self.compute_features(place, user_prefs_lower)
 
-            dist = place.get("metro_distance_km")
-            if dist is not None:
-                score += max(0, 0.6 - dist * 0.3)
-
-            if place.get("category"):
-                for p in user_preferences:
-                    if p.lower() in place["category"].lower():
-                        score += 0.7
-
-            if place.get("tags"):
-                tag_str = " ".join(place["tags"])
-                for p in user_preferences:
-                    if p.lower() in tag_str.lower():
-                        score += 0.4
+            for f_name, value in features.items():
+                score += value * self.weights[f_name]
 
             results.append((i, score))
 
         results.sort(key=lambda x: x[1], reverse=True)
 
-        return [self.places[i] for i, _ in results[:top_k]]
-    
+        raw = [self.places[i] for i, _ in results[:top_k * 2]]
+        unique = self.unique_results(raw)
+
+        return unique[:top_k]
+
     def normalize_query(self, user_preferences):
         mapping = {
-            "детям": "семейный отдых дети парк развлечения",
-            "музеи": "музей выставка искусство культура",
-            "театр": "театр спектакль постановка",
-            "парк": "парк прогулка природа",
-            "еда": "ресторан кафе кухня"
+            "детям": "дети семья парк развлечения безопасно",
+            "музеи": "музей выставка искусство галерея культура",
+            "театр": "театр спектакль сцена постановка",
+            "парк": "парк прогулка природа свежий воздух",
+            "еда": "ресторан кафе кухня бар еда",
+            "ночь": "клуб бар ночная жизнь тусовка",
+            "романтика": "романтика прогулка вид закат",
         }
 
         expanded = []
@@ -96,3 +120,15 @@ class PlacesRecommender:
             expanded.append(mapping.get(p.lower(), ""))
 
         return " ".join(expanded)
+
+    def unique_results(self, results):
+        seen = set()
+        unique = []
+
+        for r in results:
+            key = f"{r.get('name')}_{r.get('address')}"
+            if key not in seen:
+                seen.add(key)
+                unique.append(r)
+
+        return unique

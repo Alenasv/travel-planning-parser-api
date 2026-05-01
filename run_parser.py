@@ -5,6 +5,7 @@ import os
 import shutil
 from db.database import insert_places
 from collections import Counter
+from utils.utils import deduplicate
 
 def cleanup_previous_data():
     json_files = ['data/all_places.json', 'data/restaurants.json', 'data/places.json']
@@ -28,25 +29,6 @@ def cleanup_previous_data():
             except Exception as e:
                 print(f"Не удалось удалить {image_dir}: {e}")
 
-
-def deduplicate(data):
-    seen = {}
-
-    for item in data:
-        key = make_key(item)
-        if not key:
-            continue
-
-        prev = seen.get(key)
-
-        if not prev:
-            seen[key] = item
-            continue
-
-        if len(item.get("description", "")) > len(prev.get("description", "")):
-            seen[key] = item
-
-    return list(seen.values())
 
 def main():
 

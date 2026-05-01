@@ -14,7 +14,7 @@ if __name__ == "__main__":
     model = PlacesRecommender(places)
 
     user_preferences = ["адмиралтейская", "музеи"]
-    top_k = random.randint(5, 15)
+    top_k = random.randint(5, 12)
 
     recs = model.recommend(user_preferences, top_k=top_k)
 

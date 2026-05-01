@@ -94,7 +94,7 @@ METRO_GROUPS = {
     "Невский проспект": "Невский проспект",
     "Гостиный двор": "Невский проспект",
 }
-
+GEOCODE_CACHE = {}
 def normalize_metro(name):
     if not name:
         return None
@@ -102,29 +102,55 @@ def normalize_metro(name):
 
 
 def geocode(address):
+    if not address:
+        return None
+
+    address = address.strip().lower()
+
+    if address in GEOCODE_CACHE:
+        return GEOCODE_CACHE[address]
+
     url = "https://nominatim.openstreetmap.org/search"
-    params = {
-        "q": address,
-        "format": "json",
-        "limit": 1
-    }
 
-    headers = {
-        "User-Agent": "places-recommender/1.0"
-    }
+    try:
+        response = requests.get(
+            url,
+            params={
+                "q": address,
+                "format": "json",
+                "limit": 1
+            },
+            headers={"User-Agent": "places-recommender/1.0"},
+            timeout=5
+        )
 
-    r = requests.get(url, params=params, headers=headers, timeout=10)
-    data = r.json()
+        data = response.json()
 
-    if data:
-        return {
-            "lat": float(data[0]["lat"]),
-            "lon": float(data[0]["lon"])
-        }
+        if data:
+            result = {
+                "lat": float(data[0]["lat"]),
+                "lon": float(data[0]["lon"])
+            }
 
+            GEOCODE_CACHE[address] = result
+            return result
+
+    except Exception as e:
+        print(f"Geocode error: {e}")
+
+    GEOCODE_CACHE[address] = None
     return None
 
+
 def distance(lat1, lon1, lat2, lon2):
+    try:
+        lat1 = float(lat1)
+        lon1 = float(lon1)
+        lat2 = float(lat2)
+        lon2 = float(lon2)
+    except (TypeError, ValueError):
+        return None
+
     R = 6371
 
     dlat = radians(lat2 - lat1)
