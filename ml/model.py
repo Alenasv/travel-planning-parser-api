@@ -1,5 +1,6 @@
 from sentence_transformers import SentenceTransformer
 import numpy as np
+from sklearn.cluster import KMeans
 
 
 class PlacesRecommender:
@@ -23,6 +24,16 @@ class PlacesRecommender:
             batch_size=32,
             show_progress_bar=True
         )
+        
+        self.num_clusters = min(15, max(5, int(len(self.places) ** 0.5)))
+
+        self.kmeans = KMeans(
+            n_clusters=self.num_clusters,
+            random_state=42,
+            n_init=10
+        )
+
+        self.cluster_ids = self.kmeans.fit_predict(self.embeddings)
 
     def build_text(self, place):
         parts = []
@@ -95,9 +106,9 @@ class PlacesRecommender:
 
         results.sort(key=lambda x: x[1], reverse=True)
 
-        return self.unique_results(
-            [self.places[i] for i, _ in results[:top_k * 2]]
-        )[:top_k]
+        ranked = [self.places[i] for i, _ in results[:top_k * 2]]
+
+        return self.unique_results(ranked)[:top_k]
 
     def unique_results(self, results):
         seen = set()
@@ -110,3 +121,38 @@ class PlacesRecommender:
                 out.append(r)
 
         return out
+    
+    def build_clusters(self):
+        clusters = {}
+
+        for idx, place in enumerate(self.places):
+            cid = int(self.cluster_ids[idx])
+
+            if cid not in clusters:
+                clusters[cid] = {
+                    "id": cid,
+                    "name": "",
+                    "places": []
+                }
+
+            clusters[cid]["places"].append(place)
+
+        for cluster in clusters.values():
+            cluster["name"] = self.get_cluster_name(cluster["places"])
+
+        return list(clusters.values())
+    
+    def get_cluster_name(self, places):
+        tags = []
+
+        for p in places:
+            tags.extend(p.get("tags", []))
+            if p.get("category"):
+                tags.append(p["category"])
+
+        if not tags:
+            return "Разное"
+
+        # берём самые частые
+        from collections import Counter
+        return Counter(tags).most_common(1)[0][0]
