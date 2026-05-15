@@ -48,7 +48,9 @@ def get_json(filename: str):
 @app.post("/recommend")
 def recommend(req: RecommendRequest):
 
-    recs = model.recommend(req.user_preferences, req.top_k)
+    top_k = max(1, min(req.top_k, 10))  
+
+    recs = model.recommend(req.user_preferences, top_k)
 
     return {
         "places": [
