@@ -2,7 +2,7 @@ from sentence_transformers import SentenceTransformer
 import numpy as np
 from sklearn.cluster import KMeans
 from collections import Counter
-from preference_profile import CORE_PREFERENCES,NOISE_TAGS
+from preference_profile import CORE_PREFERENCES,NOISE_TAGS,UI_TAGS
 
 class PlacesRecommender:
     def __init__(self, places, weights=None):
@@ -16,7 +16,8 @@ class PlacesRecommender:
             "distance": 0.8,
             "tags": 0.6,
         }
-
+        for p in self.places:
+                    self.build_ui_tags(p)
         texts = [self.build_text(p) for p in places]
 
         self.embeddings = self.model.encode(
@@ -130,28 +131,61 @@ class PlacesRecommender:
                 clusters[cid] = {
                     "id": cid,
                     "name": "",
+                    "tags": [],
                     "places": []
                 }
 
             clusters[cid]["places"].append(place)
 
         for cluster in clusters.values():
-            cluster["name"] = self.get_cluster_name(cluster["places"])
+            tags = self.get_cluster_tags(cluster["places"])
+
+            cluster["tags"] = tags
+            cluster["name"] = tags[0] if tags else "Интересное"
 
         return list(clusters.values())
-    
-    def get_cluster_name(self, places):
-        tags = []
+    def get_cluster_tags(self, places):
+        counter = Counter()
 
         for p in places:
-            tags.extend(p.get("tags", []))
-            if p.get("category"):
-                tags.append(p["category"])
+            for ui in p.get("ui_tags", []):
+                if ui != "other":
+                    counter[ui] += 1
 
-        if not tags:
-            return "Разное"
+        if not counter:
+            return [UI_TAGS["other"]]
 
-        return Counter(tags).most_common(1)[0][0]
+        top = counter.most_common(3)
+
+        return [UI_TAGS[k] for k, _ in top]
+    
+    def map_to_ui_tag(self, tag: str):
+        tag = tag.lower()
+
+        for group, data in CORE_PREFERENCES.items():
+            if any(k in tag for k in data["keywords"]):
+                return group
+
+        return "other"
+    def is_noise(self, tag: str):
+        return tag.lower() in NOISE_TAGS
+    def build_ui_tags(self, place):
+        ui_tags = set()
+
+        for t in place.get("tags", []):
+            if self.is_noise(t):
+                continue
+
+            ui = self.map_to_ui_tag(t)
+            if ui != "other":
+                ui_tags.add(ui)
+
+        cat = place.get("category", "")
+        ui = self.map_to_ui_tag(cat)
+        if ui != "other":
+            ui_tags.add(ui)
+
+        place["ui_tags"] = list(ui_tags) if ui_tags else ["other"]
     
     def diversify(self, results, max_k=10):
 
