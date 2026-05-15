@@ -1,7 +1,8 @@
 from sentence_transformers import SentenceTransformer
 import numpy as np
 from sklearn.cluster import KMeans
-
+from collections import Counter
+from preference_profile import CORE_PREFERENCES,NOISE_TAGS
 
 class PlacesRecommender:
     def __init__(self, places, weights=None):
@@ -36,24 +37,17 @@ class PlacesRecommender:
         self.cluster_ids = self.kmeans.fit_predict(self.embeddings)
 
     def build_text(self, place):
-        parts = []
+        category = place.get("category", "")
+        tags = " ".join(place.get("tags", []))
+        name = place.get("name", "")
+        desc = place.get("description", "")
 
-        if place.get("name"):
-            parts.append(place["name"])
-
-        if place.get("category"):
-            parts.append(place["category"])
-
-        if place.get("tags"):
-            parts.append(" ".join(place["tags"]))
-
-        if place.get("description") and place["description"] != "—":
-            parts.append(place["description"])
-
-        if place.get("metro"):
-            parts.append(place["metro"])
-
-        return " ".join(parts)
+        return f"""
+    CATEGORY: {category}
+    NAME: {name}
+    TAGS: {tags}
+    DESCRIPTION: {desc}
+    """
 
     def normalize_query(self, prefs):
         mapping = {
@@ -75,7 +69,7 @@ class PlacesRecommender:
         query = self.normalize_query(user_preferences)
         query_vec = self.model.encode([query], normalize_embeddings=True)[0]
 
-        user_prefs = [p.lower() for p in user_preferences]
+        prefs = self.normalize_preferences(user_preferences)
 
         results = []
 
@@ -83,32 +77,25 @@ class PlacesRecommender:
 
             emb_score = float(np.dot(self.embeddings[i], query_vec))
 
-            category = (place.get("category") or "").lower()
-            metro = (place.get("metro") or "").lower()
+            category_score = self.score_category_boost(place, prefs)
+
             tags = " ".join(place.get("tags", [])).lower()
-            dist = place.get("metro_distance_km")
 
-            score = emb_score  
+            tag_score = sum(
+                0.1 for p in prefs if p in tags
+            )
 
-            if any(p in category for p in user_prefs):
-                score += 0.25
-
-            if any(p in metro for p in user_prefs):
-                score += 0.2
-
-            if any(p in tags for p in user_prefs):
-                score += 0.15
-
-            if isinstance(dist, (int, float)):
-                score -= dist * 0.05
+            score = emb_score + category_score + tag_score
 
             results.append((i, score))
 
         results.sort(key=lambda x: x[1], reverse=True)
 
-        ranked = [self.places[i] for i, _ in results[:top_k * 2]]
+        ranked = [self.places[i] for i, _ in results[:top_k * 3]]
 
-        return self.unique_results(ranked)[:top_k]
+        unique = self.unique_results(ranked)
+
+        return self.diversify(unique, top_k)
 
     def unique_results(self, results):
         seen = set()
@@ -122,6 +109,17 @@ class PlacesRecommender:
 
         return out
     
+    def score_category_boost(self, place, prefs):
+        category = (place.get("category") or "").lower()
+
+        score = 0.0
+
+        for group, data in CORE_PREFERENCES.items():
+            if any(k in category for k in data["keywords"]):
+                if group in prefs:
+                    score += data["boost"]
+
+        return score
     def build_clusters(self):
         clusters = {}
 
@@ -153,6 +151,42 @@ class PlacesRecommender:
         if not tags:
             return "Разное"
 
-        # берём самые частые
-        from collections import Counter
         return Counter(tags).most_common(1)[0][0]
+    
+    def diversify(self, results, max_k=10):
+
+        selected = []
+        category_count = {}
+
+        for r in results:
+
+            cat = (r.get("category") or "unknown").lower()
+
+            count = category_count.get(cat, 0)
+
+            if count >= 2:
+                continue
+
+            selected.append(r)
+            category_count[cat] = count + 1
+
+            if len(selected) >= max_k:
+                break
+
+        return selected
+    
+    def normalize_preferences(self, prefs):
+        result = set()
+
+        for p in prefs:
+            p_low = p.lower()
+
+            result.add(p_low)
+
+            for group, data in CORE_PREFERENCES.items():
+                if any(k in p_low for k in data["keywords"]):
+                    result.add(group)
+                    result.update(data["keywords"])
+
+        return list(result)
+        

@@ -56,7 +56,7 @@ def recommend(req: RecommendRequest):
                 "id": p.get("id"),
                 "name": p.get("name"),
                 "category": p.get("category"),
-                "metro": p.get("metro"),
+                "metro": p.get("metro"), 
                 "address": p.get("address"),
                 "work_time": p.get("work_time", "")
             }
