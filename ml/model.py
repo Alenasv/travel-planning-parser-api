@@ -27,7 +27,7 @@ class PlacesRecommender:
             show_progress_bar=True
         )
         
-        self.num_clusters = min(15, max(5, int(len(self.places) ** 0.5)))
+        self.num_clusters = max(8, min(60, len(self.places) // 10))
 
         self.kmeans = KMeans(
             n_clusters=self.num_clusters,
@@ -137,27 +137,32 @@ class PlacesRecommender:
 
             clusters[cid]["places"].append(place)
 
-        for cluster in clusters.values():
-            tags = self.get_cluster_tags(cluster["places"])
-
-            cluster["tags"] = tags
-            cluster["name"] = tags[0] if tags else "Интересное"
+        for cluster in list(clusters.values()):
+            refined_tags = self.get_cluster_tags(cluster["places"])
+            
+            cluster["tags"] = refined_tags
+            cluster["name"] = refined_tags[0] if refined_tags else "Интересное"
 
         return list(clusters.values())
     def get_cluster_tags(self, places):
         counter = Counter()
 
         for p in places:
-            for ui in p.get("ui_tags", []):
-                if ui != "other":
-                    counter[ui] += 1
+            for t in p.get("tags", []):
+                t_low = t.lower().strip()
+                if not self.is_noise(t_low) and len(t_low) > 2:
+                    counter[t_low] += 1
+            
+            cat = p.get("category", "")
+            if cat and not self.is_noise(cat):
+                counter[cat.lower().strip()] += 1
 
         if not counter:
-            return [UI_TAGS["other"]]
+            return ["Интересное"]
 
         top = counter.most_common(3)
 
-        return [UI_TAGS[k] for k, _ in top]
+        return [k.capitalize() for k, _ in top]
     
     def map_to_ui_tag(self, tag: str):
         tag = tag.lower()
