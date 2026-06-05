@@ -3,10 +3,12 @@ import numpy as np
 import re
 from sklearn.cluster import KMeans
 from collections import Counter
-from preference_profile import CORE_PREFERENCES, NOISE_TAGS, UI_TAGS
+from utils.geo_utils import distance, nearest_metro
+from .preference_profile import CORE_PREFERENCES, NOISE_TAGS, UI_TAGS
 
 class PlacesRecommender:
     def __init__(self, places, weights=None):
+        self.places = [p for p in places if isinstance(p, dict) and "id" in p]
         self.places = places
         self.model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
 
@@ -30,7 +32,7 @@ class PlacesRecommender:
             show_progress_bar=True
         )
         
-        self.num_clusters = max(8, min(60, len(self.places) // 10))
+        self.num_clusters = min(8, max(1, len(self.places)))
 
         self.kmeans = KMeans(
             n_clusters=self.num_clusters,
@@ -63,38 +65,91 @@ class PlacesRecommender:
 
         return " ".join(expanded)
 
-    def recommend(self, user_preferences, top_k=10):
+    def recommend(self, user_preferences, user_location=None, top_k=10):
+       
         query = self.normalize_query(user_preferences)
         query_vec = self.model.encode([query], normalize_embeddings=True)[0]
         prefs = self.normalize_preferences(user_preferences)
 
-        results = []
+        scored_places = []
         for i, place in enumerate(self.places):
+            distance_score = 0.0
+            metro_score = 0.0
+
+            place_lat = place.get("lat")
+            place_lon = place.get("lon")
+
+            if user_location and place_lat is not None and place_lon is not None:
+                d = distance(user_location["lat"], user_location["lon"], place_lat, place_lon)
+                if d is not None:
+                    distance_score = max(0, 1 - (d / 10)) 
+
+                metro_name, metro_dist = nearest_metro(place_lat, place_lon)
+                if metro_dist is not None:
+                    metro_score = max(0, 1 - (metro_dist / 2))
+
             emb_score = float(np.dot(self.embeddings[i], query_vec)) * self.w.get("embedding", 1.0)
             category_score = self.score_category_boost(place, prefs) * self.w.get("category", 1.0)
 
             tags = " ".join(place.get("tags", [])).lower()
             tag_score = sum(0.1 for p in prefs if p in tags) * self.w.get("tags", 1.0)
 
-            score = emb_score + category_score + tag_score
-            results.append((i, score))
+            total_score = (
+                emb_score + category_score + tag_score + 
+                distance_score * self.w.get("distance", 1.0) + 
+                metro_score * self.w.get("metro", 1.0)
+            )
+            scored_places.append({"index": i, "score": total_score})
 
-        results.sort(key=lambda x: x[1], reverse=True)
-        ranked = [self.places[i] for i, _ in results[:top_k * 3]]
-        unique = self.unique_results(ranked)
+        scored_places.sort(key=lambda x: x["score"], reverse=True)
+        
+        candidate_indices = [sp["index"] for sp in scored_places[:top_k * 5]]
+        final_ranked = []
+        
+        if candidate_indices:
+            first_idx = candidate_indices.pop(0)
+            final_ranked.append(self.places[first_idx])
+            
+            while candidate_indices and len(final_ranked) < top_k:
+                best_idx = -1
+                best_combined_score = -1
+                
+                for idx in candidate_indices:
+                    place = self.places[idx]
+                    
+                    if place.get("lat") is None or place.get("lon") is None:
+                        combined_score = scored_places[idx]["score"]
+                    else:
+                        avg_dist_to_selected = 0
+                        for selected in final_ranked:
+                            d = distance(place["lat"], place["lon"], selected["lat"], selected["lon"])
+                            avg_dist_to_selected += d if d is not None else 5 
+                        avg_dist_to_selected /= len(final_ranked)
+                        
+                        proximity_bonus = max(0, 1 - (avg_dist_to_selected / 5)) 
+                        combined_score = scored_places[idx]["score"] * (1 + proximity_bonus * 0.5)
+                    
+                    if combined_score > best_combined_score:
+                        best_combined_score = combined_score
+                        best_idx = idx
+                
+                final_ranked.append(self.places[best_idx])
+                candidate_indices.remove(best_idx)
 
+        
+        unique = self.unique_results(final_ranked)
         return self.diversify(unique, top_k)
 
     def unique_results(self, results):
         seen = set()
         out = []
         for r in results:
-            key = (r.get("name"), r.get("address"))
-            if key not in seen:
+            key = r.get("id") 
+            if key and key not in seen:
                 seen.add(key)
                 out.append(r)
         return out
-    
+        
     def score_category_boost(self, place, prefs):
         category = (place.get("category") or "").lower()
         score = 0.0
