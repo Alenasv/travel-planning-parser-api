@@ -118,7 +118,7 @@ def test_diversification_limits(recommender):
         {"name": "Храм 3", "address": "Адр 3", "category": "Религия"},
         {"name": "Кафе 1", "address": "Адр 4", "category": "Еда"}
     ]
-    diversified = recommender.diversify(heavy_religion_list, max_k=4)
+    diversified = recommender.diversify_with_route(heavy_religion_list, max_k=4)
     religion_count = sum(1 for r in diversified if r.get("category") == "Религия")
     assert religion_count <= 2, f"Найдено {religion_count} объектов категории 'Религия'"
 

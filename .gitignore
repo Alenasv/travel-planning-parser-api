@@ -1,4 +1,2 @@
 *.env
 data/
-tests/mock_places.json
-tests/test_cases.json

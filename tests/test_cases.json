@@ -1,0 +1,39 @@
+[
+  {
+    "prefs": ["религия", "церковь"],
+    "user_location": {"lat": 59.94, "lon": 30.33},
+    "expected": [
+      {"id": "peterburg_isaakievskiy-sobor"},
+      {"id": "peterburg_spas-na-krovi"}
+    ]
+  },
+  {
+    "prefs": ["парк", "природа"],
+    "user_location": {"lat": 59.94, "lon": 30.33},
+    "expected": [
+      {"id": "peterburg_letniy-sad"}
+    ]
+  },
+  {
+    "prefs": ["еда", "кафе"],
+    "user_location": {"lat": 59.93, "lon": 30.32},
+    "expected": [
+      {"id": "peterburg_cafe-chayka"}
+    ]
+  },
+  {
+    "prefs": ["искусство", "галерея"],
+    "user_location": {"lat": 59.93, "lon": 30.31},
+    "expected": [
+      {"id": "peterburg_hermitage"},
+      {"id": "peterburg_russian-museum"}
+    ]
+  },
+  {
+    "prefs": ["архитектура", "прогулка"],
+    "user_location": {"lat": 59.94, "lon": 30.34},
+    "expected": [
+      {"id": "peterburg_kazanskiy-sobor"}
+    ]
+  }
+]

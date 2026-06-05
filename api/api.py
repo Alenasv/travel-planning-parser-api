@@ -50,7 +50,11 @@ def recommend(req: RecommendRequest):
 
     top_k = max(1, min(req.top_k, 10))  
 
-    recs = model.recommend(req.user_preferences, top_k)
+    recs = model.recommend(
+        user_preferences=req.user_preferences,
+        metro_name=req.start_metro,
+        top_k=top_k
+    )
 
     return {
         "places": [
