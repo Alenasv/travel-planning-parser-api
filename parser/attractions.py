@@ -1,10 +1,12 @@
 import requests
+import os
 from bs4 import BeautifulSoup
 import re
 import uuid
 import time
 from urllib.parse import urljoin
-from parser.utils import create_directories, clean_text, download_image, save_to_json, map_category
+from utils.utils import clean_text, download_image, save_to_json, map_category
+from utils.geo_utils import geocode, nearest_metro, normalize_metro, METRO_STATIONS
 
 class PeterburgCenterParser:
     def __init__(self, images_dir='places_images'):
@@ -18,7 +20,7 @@ class PeterburgCenterParser:
         }
         self.session = requests.Session()
         self.session.headers.update(self.headers)
-        create_directories(images_dir)
+        os.makedirs(images_dir, exist_ok=True)
 
     def fetch_html(self, url):
         try:
@@ -30,50 +32,6 @@ class PeterburgCenterParser:
         except Exception as e:
             print(f"Ошибка загрузки {url}: {e}")
             return None
-
-    def extract_image_url(self, soup):
-        fotorama = soup.find('div', class_='fotorama')
-        if fotorama:
-            for img in fotorama.find_all('img'):
-                src = img.get('src')
-                if src and 'peterburg.center' in src:
-                    return src
-                data_src = img.get('data-src')
-                if data_src and 'peterburg.center' in data_src:
-                    return data_src
-        
-        content_selectors = [
-            '.main-content img',
-            'article img',
-            '.content img',
-            'img.field-name-field-image',
-            'img[alt]'
-        ]
-        
-        for selector in content_selectors:
-            images = soup.select(selector)
-            for img in images:
-                src = img.get('src')
-                if src and 'peterburg.center' in src:
-                    return src
-                data_src = img.get('data-src')
-                if data_src and 'peterburg.center' in data_src:
-                    return data_src
-        
-        meta_selectors = [
-            'meta[property="og:image"]',
-            'meta[name="og:image"]',
-            'meta[property="twitter:image"]'
-        ]
-        
-        for selector in meta_selectors:
-            meta = soup.select_one(selector)
-            if meta:
-                src = meta.get('content')
-                if src:
-                    return src
-        
-        return None
 
     def get_address(self, soup):
         address_selectors = [
@@ -217,33 +175,83 @@ class PeterburgCenterParser:
         
         return category_urls[:10] 
 
+    def normalize_image_url(self, url):
+        if not url:
+            return None
+
+        url = url.strip()
+
+        if url.startswith("://"):
+            url = url[3:]
+
+        if url.startswith("http"):
+            return url
+        if "og_big_logo" in url:
+            return None
+        if "logo" in url:
+            return None
+
+        return urljoin(self.base_url, url)
+
+    def is_bad_image(self, url):
+        if not url:
+            return True
+        url = url.lower()
+        return any(x in url for x in [
+            "logo",
+            "og_big_logo",
+            "placeholder",
+            "default",
+            ".svg"
+        ])
+
     def get_place_urls_from_category(self, category_url, limit=7):
         html = self.fetch_html(category_url)
         if not html:
             return []
-        
+
         soup = BeautifulSoup(html, 'html.parser')
         place_urls = []
-        
-        cards = soup.find_all('div', class_=re.compile(r'card'))
-        for card in cards[:limit]:
-            a_tag = card.find('a', href=re.compile(r'/maps/'))
-            if a_tag and a_tag.get('href'):
-                full_url = urljoin(self.base_url, a_tag['href'])
-                place_urls.append(full_url)
-        
-        if not place_urls:
-            for a in soup.find_all('a', href=re.compile(r'/maps/')):
-                href = a['href']
-                full_url = urljoin(self.base_url, href)
-                if full_url not in place_urls:
-                    place_urls.append(full_url)
-                    if len(place_urls) >= limit:
-                        break
-        
+
+        card_blocks = soup.select("div.view-content div.img-fluid")
+
+        for block in card_blocks:
+            a = block.select_one("a")
+            if not a or not a.get("href"):
+                continue
+
+            url = urljoin(self.base_url, a["href"])
+
+            img = block.select_one("img")
+            img_url = None
+            if img:
+                img_url = img.get("data-src") or img.get("src")
+
+            if img_url:
+                img_url = urljoin(self.base_url, img_url)
+
+            place_urls.append({
+                "url": url,
+                "image_url": img_url
+            })
+
+            if len(place_urls) >= limit:
+                break
+
         return place_urls
 
-    def parse_place(self, url, category_name):
+    def is_valid_image(self, url):
+        if not url:
+            return False
+        if "data:image" in url:
+            return False
+        if "placeholder" in url:
+            return False
+        if url.endswith(".svg"):
+            return False
+        return True
+    
+    def parse_place(self, url, category_name, preview_image=None):
         html = self.fetch_html(url)
         if not html:
             return None
@@ -258,13 +266,29 @@ class PeterburgCenterParser:
         address = self.get_address(soup)
         work_time = self.get_work_time(soup)
         description = self.get_description(soup)
-        image_url = self.extract_image_url(soup)
+        image_url = self.get_high_quality_image(soup, preview_image)
         
-        image_filename = None
+        if image_url:
+            image_url = self.normalize_image_url(image_url)
+
+        if not image_url:
+            return None
+
         if image_url and name != "—":
             clean_name = re.sub(r'[^\w\s-]', '', name).strip()
             image_filename = download_image(image_url, clean_name, self.images_dir)
+    
+        coords = geocode(address)
+        metro_name = None
+        metro_distance = None
 
+        if coords:
+            metro_raw, metro_distance = nearest_metro(
+                coords["lat"],
+                coords["lon"]
+            )
+            metro_name = normalize_metro(metro_raw)
+        
         mapped_category = map_category(category_name)
         return {
             "id": f"peterburg_{url.split('/')[-1]}",
@@ -273,11 +297,61 @@ class PeterburgCenterParser:
             "address": address,
             "work_time": work_time,
             "description": description,
+            "tags": self.generate_tags(name, description, mapped_category),
+            "coords": coords or {},
+            "metro": metro_name,
+            "metro_distance_km": metro_distance,
             "image_filename": image_filename if image_filename else "default_place.jpg",
             "source": "peterburg.center",
             "url": url
         }
 
+    def resolve_image(self, soup):
+        og = soup.select_one('meta[property="og:image"]')
+        if og and og.get('content'):
+            url = og['content']
+            if "og_big_logo" not in url:
+                return self.normalize_image_url(url)
+
+        import json
+        for script in soup.find_all("script", type="application/ld+json"):
+            try:
+                data = json.loads(script.string)
+                if isinstance(data, dict) and "image" in data:
+                    img = data["image"]
+                    if isinstance(img, str) and "og_big_logo" not in img:
+                        return self.normalize_image_url(img)
+            except:
+                pass
+
+        fotorama = soup.find('div', class_='fotorama')
+        if fotorama:
+            for img in fotorama.find_all('img'):
+                for attr in ['data-full', 'data-big', 'data-src', 'src']:
+                    url = img.get(attr)
+                    if url and "og_big_logo" not in url and "placeholder" not in url:
+                        return self.normalize_image_url(url)
+
+        img = soup.select_one('article img, .main-content img, .content img')
+        if img:
+            url = img.get('data-src') or img.get('src')
+            if url and "og_big_logo" not in url:
+                return self.normalize_image_url(url)
+
+        return None    
+    def get_high_quality_image(self, soup, preview_url):
+        fotorama = soup.find('div', class_='fotorama')
+        if fotorama:
+            for img in fotorama.find_all('img'):
+                full_src = img.get('data-full') or img.get('data-big') or img.get('src')
+                
+                if full_src and preview_url and (preview_url.split('/')[-1] in full_src):
+                    return urljoin(self.base_url, full_src)
+
+        if preview_url and 'styles/' in preview_url:
+            return preview_url.split('/styles/')[0] + '/' + preview_url.split('/')[-1]
+
+        return preview_url
     def parse(self):
         all_data = []
         
@@ -285,7 +359,6 @@ class PeterburgCenterParser:
         
         for i, category_url in enumerate(category_urls, 1):
             try:
-                
                 html_cat = self.fetch_html(category_url)
                 if not html_cat:
                     continue
@@ -296,12 +369,17 @@ class PeterburgCenterParser:
                 
                 place_urls = self.get_place_urls_from_category(category_url, limit=1)
                 
-                for j, place_url in enumerate(place_urls, 1):
+                for j, place_data in enumerate(place_urls, 1):
+                    place_url = place_data["url"]
+                    preview_image = place_data["image_url"]
                     try:
-                        
-                        place_data = self.parse_place(place_url, category_name)
-                        if place_data:
-                            all_data.append(place_data)
+                        place_result = self.parse_place(
+                            place_url,
+                            category_name,
+                            preview_image
+                        )
+                        if place_result:
+                            all_data.append(place_result)
                         
                         time.sleep(1)
                         
@@ -314,6 +392,27 @@ class PeterburgCenterParser:
                 print(f"Ошибка {category_url}: {e}")
                 continue
         return all_data
+    
+    def generate_tags(self, name, description, category):
+        text = f"{name} {description} {category}".lower()
+        tags = set()
+        rules = {
+            "дети": ["детям", "ребёнок", "семь", "школь", "дошколь", "сказк"],
+            "музеи": ["музей", "экспози", "выстав"],
+            "театр": ["театр", "спектак", "постанов"],
+            "религия": ["собор", "храм", "церковь", "монастыр"],
+            "парк": ["парк", "сад", "аллея"],
+            "история": ["истор", "памятник", "эпох", "романов"],
+            "вид": ["вид", "панорам", "смотров"],
+            "экскурсии": ["экскурс"],
+            "бесплатно": ["бесплат"],
+        }
+        for tag, keywords in rules.items():
+            if any(k in text for k in keywords):
+                tags.add(tag)
+        if not tags:
+            tags.add(category.lower())
+        return list(tags)
 
 if __name__ == "__main__":
     parser = PeterburgCenterParser()

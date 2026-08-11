@@ -1,14 +1,35 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from api.schemas import RecommendRequest
+from ml.model import PlacesRecommender
+from contextlib import asynccontextmanager
+import json
 import os
 import uvicorn
-import json
 
-app = FastAPI()
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(BASE_DIR, "data")
+
+model = None
+
+
+def load_places():
+    path = os.path.join(DATA_DIR, "all_places.json")
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global model
+    places = load_places()
+    model = PlacesRecommender(places)
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
 
 app.mount("/static", StaticFiles(directory=DATA_DIR), name="static")
 
@@ -24,9 +45,44 @@ def get_json(filename: str):
 
     return JSONResponse(content=data)
 
+@app.post("/recommend")
+def recommend(req: RecommendRequest):
+
+    top_k = max(1, min(req.top_k, 10))  
+
+    recs = model.recommend(
+        user_preferences=req.user_preferences,
+        metro_name=req.start_metro,
+        top_k=top_k
+    )
+
+    return {
+        "places": [
+            {
+                "id": p.get("id"),
+                "name": p.get("name"),
+                "category": p.get("category"),
+                "metro": p.get("metro"), 
+                "address": p.get("address"),
+                "work_time": p.get("work_time", "")
+            }
+            for p in recs
+        ]
+    }
 @app.get("/")
 def read_root():
     return {"message": "API don't work"}
 
+@app.get("/clusters")
+def get_clusters():
+    return {
+        "clusters": model.build_clusters()
+    }
+
+@app.get("/ping")
+def ping():
+    return {"status": "ok"}
+    
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
