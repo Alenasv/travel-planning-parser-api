@@ -1,5 +1,10 @@
+import os
 import requests
+import time
 from math import radians, sin, cos, sqrt, atan2
+from dotenv import load_dotenv
+
+load_dotenv()
 
 METRO_STATIONS = [
     {"name": "Девяткино", "lat": 60.0501, "lon": 30.4422},
@@ -80,28 +85,109 @@ METRO_STATIONS = [
     {"name": "Шушары", "lat": 59.8203, "lon": 30.4244},
 ] 
 
-METRO_GROUPS = {
-    "Технологический институт": "Технологический институт",
-    "Технологический институт-2": "Технологический институт",
-
-    "Площадь Восстания": "Площадь Восстания",
-    "Маяковская": "Площадь Восстания",
-
-    "Сенная площадь": "Сенная площадь",
-    "Садовая": "Сенная площадь",
-    "Спасская": "Сенная площадь",
-
-    "Невский проспект": "Невский проспект",
-    "Гостиный двор": "Невский проспект",
-}
 GEOCODE_CACHE = {}
-def normalize_metro(name):
-    if not name:
+NOMINATIM_MIN_INTERVAL = 1.1
+_last_geocode_at = 0.0
+def _nominatim_wait():
+    global _last_geocode_at
+    wait = NOMINATIM_MIN_INTERVAL - (time.time() - _last_geocode_at)
+    if wait > 0:
+        time.sleep(wait)
+    _last_geocode_at = time.time()
+
+
+GEOAPIFY_GEOCODE_URL = "https://api.geoapify.com/v1/geocode/search"
+GEOAPIFY_REVERSE_URL = "https://api.geoapify.com/v1/geocode/reverse"
+GEOAPIFY_SPB_FILTER = "rect:29.42,59.63,30.76,60.25"
+
+
+def _geoapify_request(url, params):
+    key = os.getenv("GEOAPIFY_KEY")
+    if not key:
         return None
-    return METRO_GROUPS.get(name, name)
+    try:
+        response = requests.get(url, params={**params, "apiKey": key}, timeout=20)
+        if response.status_code == 200:
+            return response.json()
+        print(f"Geoapify geocode: ответ {response.status_code}")
+    except Exception as e:
+        print(f"Geoapify geocode: сетевая ошибка ({type(e).__name__})")
+    return None
+
+
+def _short_address(result):
+    street = result.get("street")
+    house = result.get("housenumber")
+    if street and house:
+        return f"{street}, {house}"
+    return street
+
+
+def reverse_geocode(lat, lon):
+    data = _geoapify_request(GEOAPIFY_REVERSE_URL, {
+        "lat": lat, "lon": lon, "lang": "ru", "format": "json", "limit": 1,
+    })
+    results = (data or {}).get("results") or []
+    if results and _short_address(results[0]):
+        return _short_address(results[0])
+    return _nominatim_reverse(lat, lon)
+
+
+def _nominatim_reverse(lat, lon):
+    _nominatim_wait()
+    try:
+        response = requests.get(
+            "https://nominatim.openstreetmap.org/reverse",
+            params={
+                "lat": lat,
+                "lon": lon,
+                "format": "json",
+                "zoom": 18,
+                "accept-language": "ru"
+            },
+            headers={"User-Agent": "places-recommender/1.0"},
+            timeout=10
+        )
+        data = response.json()
+    except Exception as e:
+        print(f"Reverse geocode error: {e}")
+        return None
+
+    addr = data.get("address") or {}
+    road = addr.get("road") or addr.get("pedestrian") or addr.get("footway")
+    house = addr.get("house_number")
+    if road and house:
+        return f"{road}, {house}"
+    if road:
+        return road
+
+    display = data.get("display_name")
+    if display:
+        return ", ".join(display.split(", ")[:3])
+    return None
 
 
 def geocode(address):
+    if not address:
+        return None
+    key = address.strip().lower()
+    if key in GEOCODE_CACHE:
+        return GEOCODE_CACHE[key]
+
+    data = _geoapify_request(GEOAPIFY_GEOCODE_URL, {
+        "text": address, "lang": "ru", "format": "json", "limit": 1,
+        "filter": GEOAPIFY_SPB_FILTER,
+    })
+    results = (data or {}).get("results") or []
+    if results and results[0].get("lat") is not None:
+        result = {"lat": float(results[0]["lat"]), "lon": float(results[0]["lon"])}
+        GEOCODE_CACHE[key] = result
+        return result
+
+    return _nominatim_geocode(address)
+
+
+def _nominatim_geocode(address):
     if not address:
         return None
 
@@ -112,13 +198,16 @@ def geocode(address):
 
     url = "https://nominatim.openstreetmap.org/search"
 
+    _nominatim_wait()
+
     try:
         response = requests.get(
             url,
             params={
                 "q": address,
                 "format": "json",
-                "limit": 1
+                "limit": 1,
+                "countrycodes": "ru"
             },
             headers={"User-Agent": "places-recommender/1.0"},
             timeout=5
@@ -177,21 +266,3 @@ def nearest_metro(lat, lon):
         return None, None
 
     return best["name"], round(best_dist, 2)
-
-def geo_key(coords):
-    if not coords:
-        return None
-
-    lat = coords.get("lat")
-    lon = coords.get("lon")
-
-    if lat is None or lon is None:
-        return None
-
-    try:
-        lat = round(float(lat), 3)
-        lon = round(float(lon), 3)
-    except (TypeError, ValueError):
-        return None
-
-    return f"{lat}_{lon}"

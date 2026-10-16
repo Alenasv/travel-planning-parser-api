@@ -2,15 +2,20 @@ import requests
 import os
 from bs4 import BeautifulSoup
 import re
-import uuid
 import time
 from urllib.parse import urljoin
 from utils.utils import clean_text, download_image, save_to_json, map_category
-from utils.geo_utils import geocode, nearest_metro, normalize_metro, METRO_STATIONS
+from utils.geo_utils import geocode
+from utils.normalize import valid_coords
+
+MAX_ADDRESS_LEN = 150
+COORDS_PAIR_RE = re.compile(r"(5[89]|6[01])\.(\d{3,})\s*,\s*(2[7-9]|3[0-5])\.(\d{3,})")
+COORDS_PAIR_REVERSED_RE = re.compile(r"(2[7-9]|3[0-5])\.(\d{3,})\s*,\s*(5[89]|6[01])\.(\d{3,})")
 
 class PeterburgCenterParser:
-    def __init__(self, images_dir='places_images'):
+    def __init__(self, images_dir='places_images', per_category=2):
         self.images_dir = images_dir
+        self.per_category = per_category
         self.base_url = "https://peterburg.center"
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -37,8 +42,8 @@ class PeterburgCenterParser:
         address_selectors = [
             '.field-name-field-address .field-item',
             '.field-name-field-address',
-            'div.field-label:contains("Адрес") + div.field-items',
-            '.field-label-inline:contains("Адрес")'
+            'div.field-label:-soup-contains("Адрес") + div.field-items',
+            '.field-label-inline:-soup-contains("Адрес")'
         ]
         
         for selector in address_selectors:
@@ -46,7 +51,7 @@ class PeterburgCenterParser:
             for element in elements:
                 text = element.get_text(strip=True)
                 text = re.sub(r'^Адрес:\s*', '', text, flags=re.IGNORECASE).strip()
-                if text and len(text) > 5:
+                if text and 5 < len(text) <= MAX_ADDRESS_LEN:
                     return clean_text(text)
         
         for element in soup.find_all(string=re.compile("Адрес:")):
@@ -56,57 +61,92 @@ class PeterburgCenterParser:
                 parts = text.split("Адрес:")
                 if len(parts) > 1:
                     address_part = parts[1].strip().split('\n')[0].strip()
-                    if address_part and len(address_part) > 5:
+                    if address_part and 5 < len(address_part) <= MAX_ADDRESS_LEN:
                         return clean_text(address_part)
-        
+
         for item in soup.select('.field-item'):
             text = item.get_text(strip=True)
-            if (len(text) > 10 and 
+            if (10 < len(text) <= MAX_ADDRESS_LEN and
                 any(keyword in text.lower() for keyword in ['санкт-петербург', 'спб', 'ленинградская', 'ул.', 'улица', 'проспект', 'площадь', 'набережная', 'г. павловск']) and
                 not any(exclude in text.lower() for exclude in ['режим работы', 'телефон', 'сайт', 'email'])):
                 return clean_text(text)
-        
-        return "—"
+
+        return None
 
     def get_work_time(self, soup):
         work_time_info = []
-        
+
         for header in soup.find_all(['h2', 'h3', 'h4']):
             header_text = header.get_text()
             if any(word in header_text.lower() for word in ['режим работы', 'время работы', 'часы работы']):
-                current = header.find_next()
-                collected = []
-                while current and len(collected) < 15:  
-                    if current.name in ['h2', 'h3', 'h4'] and current != header:
+                for el in header.find_all_next(['p', 'li', 'h2', 'h3', 'h4'], limit=15):
+                    if el.name in ['h2', 'h3', 'h4']:
                         break
-                    if current.name in ['p', 'ul', 'li', 'div']:
-                        text = current.get_text(strip=True)
-                        if text and len(text) > 3:
-                            collected.append(text)
-                    current = current.find_next()
-                
-                if collected:
-                    work_time_info.extend(collected[:8])
+                    for line in el.get_text('\n', strip=True).split('\n'):
+                        line = line.strip()
+                        if len(line) > 3 and line not in work_time_info:
+                            work_time_info.append(line)
+                if work_time_info:
                     break
-        
+
         if not work_time_info:
             for li in soup.find_all('li'):
-                text = li.get_text(strip=True)
-                if (any(keyword in text.lower() for keyword in ['работает', 'касса', 'выходной', 'бесплатный', 'вход']) or
+                text = li.get_text(' ', strip=True)
+                if (any(keyword in text.lower() for keyword in ['работает', 'касса', 'выходной', 'вход']) or
                     any(day in text.lower() for day in ['понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота', 'воскресенье'])):
-                    if any(time_indicator in text for time_indicator in [':', '—', '00', 'часов', 'время']):
+                    if re.search(r'\d{1,2}[:.]\d{2}', text):
                         work_time_info.append(text)
-        
+
         if work_time_info:
-            result = '\n'.join(work_time_info[:8])
-            if len(result) > 400:
-                result = result[:400] + "..."
-            return clean_text(result)
-        
-        return "—"
+            return clean_text('\n'.join(work_time_info))
+
+        return None
+
+    def get_coords(self, soup):
+        lat = soup.select_one('meta[property="place:location:latitude"], meta[itemprop="latitude"]')
+        lon = soup.select_one('meta[property="place:location:longitude"], meta[itemprop="longitude"]')
+        if lat and lon:
+            coords = valid_coords({"lat": lat.get("content"), "lon": lon.get("content")})
+            if coords:
+                return coords
+
+        for el in soup.select('[data-lat], [data-latitude]'):
+            coords = valid_coords({
+                "lat": el.get("data-lat") or el.get("data-latitude"),
+                "lon": el.get("data-lng") or el.get("data-lon") or el.get("data-longitude"),
+            })
+            if coords:
+                return coords
+
+        for iframe in soup.find_all('iframe', src=True):
+            m = COORDS_PAIR_REVERSED_RE.search(iframe['src'].replace('%2C', ','))
+            if m:
+                coords = valid_coords({"lat": f"{m.group(3)}.{m.group(4)}", "lon": f"{m.group(1)}.{m.group(2)}"})
+                if coords:
+                    return coords
+
+        for script in soup.find_all('script'):
+            text = script.string or ''
+            m = COORDS_PAIR_RE.search(text)
+            if m:
+                coords = valid_coords({"lat": f"{m.group(1)}.{m.group(2)}", "lon": f"{m.group(3)}.{m.group(4)}"})
+                if coords:
+                    return coords
+
+        return None
+
+    def geocode_address(self, address):
+        if not address:
+            return None
+        coords = valid_coords(geocode(address))
+        if coords:
+            return coords
+        if not re.search(r'петербург|спб|ленинградская|область', address, re.IGNORECASE):
+            return valid_coords(geocode(f"Санкт-Петербург, {address}"))
+        return None
 
     def get_description(self, soup):
-        description = "—"
+        description = None
         
         body_element = soup.find('div', class_='field-name-body')
         if body_element:
@@ -124,7 +164,7 @@ class PeterburgCenterParser:
             if desc_texts:
                 description = ' '.join(desc_texts[:3])
         
-        if description == "—":
+        if not description:
             content_selectors = [
                 '.content',
                 '.description',
@@ -152,7 +192,7 @@ class PeterburgCenterParser:
                         description = ' '.join(desc_texts[:3])
                         break
                 
-                if description != "—":
+                if description:
                     break
         
         return clean_text(description)
@@ -193,18 +233,6 @@ class PeterburgCenterParser:
 
         return urljoin(self.base_url, url)
 
-    def is_bad_image(self, url):
-        if not url:
-            return True
-        url = url.lower()
-        return any(x in url for x in [
-            "logo",
-            "og_big_logo",
-            "placeholder",
-            "default",
-            ".svg"
-        ])
-
     def get_place_urls_from_category(self, category_url, limit=7):
         html = self.fetch_html(category_url)
         if not html:
@@ -240,17 +268,6 @@ class PeterburgCenterParser:
 
         return place_urls
 
-    def is_valid_image(self, url):
-        if not url:
-            return False
-        if "data:image" in url:
-            return False
-        if "placeholder" in url:
-            return False
-        if url.endswith(".svg"):
-            return False
-        return True
-    
     def parse_place(self, url, category_name, preview_image=None):
         html = self.fetch_html(url)
         if not html:
@@ -261,7 +278,9 @@ class PeterburgCenterParser:
         h1 = soup.find('h1', class_='page-title')
         if not h1:
             h1 = soup.find('h1')
-        name = h1.get_text(strip=True) if h1 else "—"
+        name = h1.get_text(strip=True) if h1 else None
+        if not name:
+            return None
         
         address = self.get_address(soup)
         work_time = self.get_work_time(soup)
@@ -274,22 +293,16 @@ class PeterburgCenterParser:
         if not image_url:
             return None
 
-        if image_url and name != "—":
-            clean_name = re.sub(r'[^\w\s-]', '', name).strip()
-            image_filename = download_image(image_url, clean_name, self.images_dir)
-    
-        coords = geocode(address)
-        metro_name = None
-        metro_distance = None
+        clean_name = re.sub(r'[^\w\s-]', '', name).strip()
+        image_filename = download_image(image_url, clean_name, self.images_dir)
+        if image_filename:
+            image_filename = f"places_images/{os.path.basename(image_filename)}"
 
-        if coords:
-            metro_raw, metro_distance = nearest_metro(
-                coords["lat"],
-                coords["lon"]
-            )
-            metro_name = normalize_metro(metro_raw)
-        
+        coords = self.get_coords(soup) or self.geocode_address(address)
+
         mapped_category = map_category(category_name)
+        if mapped_category == "Другое":
+            mapped_category = map_category(name)
         return {
             "id": f"peterburg_{url.split('/')[-1]}",
             "category": mapped_category,
@@ -298,47 +311,13 @@ class PeterburgCenterParser:
             "work_time": work_time,
             "description": description,
             "tags": self.generate_tags(name, description, mapped_category),
-            "coords": coords or {},
-            "metro": metro_name,
-            "metro_distance_km": metro_distance,
-            "image_filename": image_filename if image_filename else "default_place.jpg",
+            "coords": coords,
+            "metro": None,
+            "image_filename": image_filename,
             "source": "peterburg.center",
             "url": url
         }
 
-    def resolve_image(self, soup):
-        og = soup.select_one('meta[property="og:image"]')
-        if og and og.get('content'):
-            url = og['content']
-            if "og_big_logo" not in url:
-                return self.normalize_image_url(url)
-
-        import json
-        for script in soup.find_all("script", type="application/ld+json"):
-            try:
-                data = json.loads(script.string)
-                if isinstance(data, dict) and "image" in data:
-                    img = data["image"]
-                    if isinstance(img, str) and "og_big_logo" not in img:
-                        return self.normalize_image_url(img)
-            except:
-                pass
-
-        fotorama = soup.find('div', class_='fotorama')
-        if fotorama:
-            for img in fotorama.find_all('img'):
-                for attr in ['data-full', 'data-big', 'data-src', 'src']:
-                    url = img.get(attr)
-                    if url and "og_big_logo" not in url and "placeholder" not in url:
-                        return self.normalize_image_url(url)
-
-        img = soup.select_one('article img, .main-content img, .content img')
-        if img:
-            url = img.get('data-src') or img.get('src')
-            if url and "og_big_logo" not in url:
-                return self.normalize_image_url(url)
-
-        return None    
     def get_high_quality_image(self, soup, preview_url):
         fotorama = soup.find('div', class_='fotorama')
         if fotorama:
@@ -367,7 +346,7 @@ class PeterburgCenterParser:
                 h1 = soup_cat.find('h1')
                 category_name = h1.get_text(strip=True) if h1 else "Достопримечательности"
                 
-                place_urls = self.get_place_urls_from_category(category_url, limit=1)
+                place_urls = self.get_place_urls_from_category(category_url, limit=self.per_category)
                 
                 for j, place_data in enumerate(place_urls, 1):
                     place_url = place_data["url"]
@@ -394,7 +373,7 @@ class PeterburgCenterParser:
         return all_data
     
     def generate_tags(self, name, description, category):
-        text = f"{name} {description} {category}".lower()
+        text = f"{name} {description or ''} {category}".lower()
         tags = set()
         rules = {
             "дети": ["детям", "ребёнок", "семь", "школь", "дошколь", "сказк"],

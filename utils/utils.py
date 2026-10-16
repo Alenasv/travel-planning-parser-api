@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 import json
 import html
 from transliterate import translit
-from utils.geo_utils import geo_key,distance
+from utils.geo_utils import distance
 from difflib import SequenceMatcher
 
 def normalize_name(name):
@@ -15,6 +15,8 @@ def normalize_name(name):
 
     name = name.lower()
 
+    name = name.replace("ё", "е")
+    name = re.sub(r"\b(в|г\.?)\s*(санкт[- ]петербурге?|спб|петербурге?)\b", "", name)
     name = re.sub(r"(музей|памятник|театр)", "", name)
 
     name = re.sub(r'[^a-zа-я0-9 ]', '', name)
@@ -36,16 +38,13 @@ def clean_text(text):
 
     return '\n'.join(cleaned_lines)
 
-def download_image(image_url, place_name, images_dir):
+def download_image(image_url, place_name, images_dir, session=None):
     if not image_url:
         return None
         
     try:
         parsed_url = urlparse(image_url)
         clean_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}"
-        
-        if '/xl/' in clean_url and 'media.kudago.com' in clean_url:
-            clean_url = clean_url.replace('/xl/', '/large/') 
         
         file_extension = os.path.splitext(parsed_url.path)[1]
         if not file_extension or len(file_extension) > 5:
@@ -71,31 +70,24 @@ def download_image(image_url, place_name, images_dir):
             'Sec-Fetch-Mode': 'no-cors',
             'Sec-Fetch-Site': 'cross-site',
             'Cache-Control': 'max-age=0',
-            'Referer': 'https://kudago.com/', 
         }
-        
-        cookies = {
-            'device_type': 'desktop',
-            'city': 'spb'
-        }
-        
-        session = requests.Session()
-        session.headers.update(headers)
         
         try:
-            response = session.get(
-                clean_url, 
-                cookies=cookies,
-                timeout=30,  
-                stream=True,
-                allow_redirects=True
-            )
+            if session is not None:
+                response = session.get(clean_url, timeout=30, allow_redirects=True)
+            else:
+                session = requests.Session()
+                session.headers.update(headers)
+                response = session.get(
+                    clean_url, 
+                    timeout=30,  
+                    stream=True,
+                    allow_redirects=True
+                )
             
             if response.status_code == 200:
                 with open(filepath, 'wb') as f:
-                    for chunk in response.iter_content(chunk_size=8192):
-                         if chunk:
-                            f.write(chunk)
+                    f.write(response.content)
 
                 file_size = os.path.getsize(filepath)
                 if file_size > 1000:
@@ -138,7 +130,7 @@ CATEGORY_GROUPS = {
     "Еда и напитки": ["бар", "паб", "ресторан", "кафе", "пивовар"],
     "Развлечения": ["клуб", "театр", "кино", "концерт", "антикафе", "развлеч"],
     "Культура": ["музей", "галере", "выстав", "искусств"],
-    "Природа": ["парк", "река", "канал", "сад"],
+    "Природа": ["парк", "река", "канал", "сад", "заповедник"],
     "История": ["памятник", "дворец", "мост", "фонтан", "усадьба", "архитект"],
     "Религия": ["храм", "церковь", "собор", "монастыр"],
 }
@@ -154,21 +146,6 @@ def map_category(category_name: str) -> str:
             return group
 
     return "Другое"
-
-def make_key(item):
-    name = normalize_name(item.get("name"))
-
-    coords = item.get("coords")
-
-    geo = None
-    if coords and isinstance(coords, dict):
-        lat = coords.get("lat")
-        lon = coords.get("lon")
-
-        if lat is not None and lon is not None:
-            geo = geo_key(coords)
-
-    return f"{name}_{geo}" if geo else name
 
 def similar(a, b):
     return SequenceMatcher(None, a, b).ratio()
@@ -193,13 +170,19 @@ def is_same_place(a, b):
     if all(v is not None for v in [lat1, lon1, lat2, lon2]):
         dist = distance(lat1, lon1, lat2, lon2)
 
-    if name_score > 0.75:
+    if dist is None:
+        return name_score > 0.9
+
+    if name_a and name_b and (name_a in name_b or name_b in name_a) and dist < 0.5:
         return True
 
-    if dist is not None and dist < 0.2:
+    if name_score > 0.85 and dist < 1.0:
         return True
 
-    if name_score > 0.6 and dist is not None and dist < 0.5:
+    if name_score > 0.6 and dist < 0.3:
+        return True
+
+    if name_score > 0.4 and dist < 0.05:
         return True
 
     return False
@@ -214,7 +197,7 @@ def deduplicate(data):
         for i, existing in enumerate(unique):
             if is_same_place(item, existing):
 
-                if len(item.get("description", "")) > len(existing.get("description", "")):
+                if len(item.get("description") or "") > len(existing.get("description") or ""):
                     unique[i] = item
 
                 duplicate_found = True
