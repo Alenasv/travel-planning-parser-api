@@ -24,7 +24,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install requests sentence-transformers scikit-learn numpy pytest
+        pip install requests python-dotenv sentence-transformers scikit-learn numpy pytest
         
     - name: Run tests
       env:
