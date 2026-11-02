@@ -1,18 +1,18 @@
 import os
 import json
 import pytest
-from ml.model import PlacesRecommender
-from utils.geo_utils import distance
+from app.ml.model import PlacesRecommender
+from app.utils.geo_utils import distance
 
 
 def load_mock_places():
-    base_dir = os.path.dirname(__file__)
+    base_dir = os.path.join(os.path.dirname(__file__), "fixtures")
     path = os.path.join(base_dir, "mock_places.json") 
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
     
 def load_cases_from_json():
-    base_dir = os.path.dirname(__file__)
+    base_dir = os.path.join(os.path.dirname(__file__), "fixtures")
     path = os.path.join(base_dir, "test_cases.json") 
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)

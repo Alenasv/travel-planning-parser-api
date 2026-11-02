@@ -4,11 +4,11 @@ from urllib.error import URLError
 
 import pytest
 
-import config
-import run_parser
-from db import database
-from parser.attractions import PeterburgCenterParser
-from utils import utils
+from app import config
+from app import run_parser
+from app.db import database
+from app.parser.attractions import PeterburgCenterParser
+from app.utils import utils
 
 
 @pytest.fixture

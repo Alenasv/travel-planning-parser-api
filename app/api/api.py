@@ -7,9 +7,9 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from api.schemas import RecommendRequest, RecommendResponse
-from config import API_HOST, API_PORT, DATA_DIR, RELOAD_MODEL_TOKEN
-from db.database import get_all_metro_stations, get_all_places
+from app.api.schemas import RecommendRequest, RecommendResponse
+from app.config import API_HOST, API_PORT, DATA_DIR, RELOAD_MODEL_TOKEN
+from app.db.database import get_all_metro_stations, get_all_places
 
 model = None
 logger = logging.getLogger(__name__)
@@ -18,7 +18,7 @@ reload_bearer = HTTPBearer(auto_error=False)
 
 
 def build_recommender(places):
-    from ml.model import PlacesRecommender
+    from app.ml.model import PlacesRecommender
 
     return PlacesRecommender(places)
 

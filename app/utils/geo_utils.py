@@ -2,10 +2,10 @@ import os
 import logging
 import requests
 import time
-from db.database import get_all_metro_stations
+from app.db.database import get_all_metro_stations
 from math import radians, sin, cos, sqrt, atan2
 
-from config import (
+from app.config import (
     GEOAPIFY_KEY,
     GEOAPIFY_GEOCODE_URL,
     GEOAPIFY_REVERSE_URL,

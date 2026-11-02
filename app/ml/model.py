@@ -1,7 +1,7 @@
 from sentence_transformers import SentenceTransformer
 import numpy as np
 from collections import Counter
-from utils.geo_utils import distance
+from app.utils.geo_utils import distance
 from .preference_profile import CLUSTERS, CORE_PREFERENCES, NOISE_TAGS, PREFERENCE_ALIASES
 
 

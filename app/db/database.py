@@ -3,7 +3,7 @@ import logging
 import psycopg2
 from psycopg2.extras import execute_values, Json, RealDictCursor
 
-from config import (
+from app.config import (
     DB_NAME,
     DB_USER,
     DB_PASSWORD,

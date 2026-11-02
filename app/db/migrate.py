@@ -3,7 +3,7 @@ import hashlib
 import re
 from pathlib import Path
 
-from db.database import get_conn
+from app.db.database import get_conn
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
 LOCK_ID = 724180231

@@ -1,12 +1,12 @@
-from parser.attractions import PeterburgCenterParser
-from parser.geoapify import GeoapifyParser
+from app.parser.attractions import PeterburgCenterParser
+from app.parser.geoapify import GeoapifyParser
 import logging
-from db.database import sync_places, check_database
+from app.db.database import sync_places, check_database
 from collections import Counter
-from utils.utils import deduplicate
-from utils.normalize import finalize_place
+from app.utils.utils import deduplicate
+from app.utils.normalize import finalize_place
 from urllib.request import Request, urlopen
-from config import (
+from app.config import (
     API_BASE_URL,
     RELOAD_MODEL_TIMEOUT,
     RELOAD_MODEL_TOKEN,

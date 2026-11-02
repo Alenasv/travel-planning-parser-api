@@ -10,9 +10,9 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from api import api
-from ml import model as model_module
-from ml.model import PlacesRecommender
+from app.api import api
+from app.ml import model as model_module
+from app.ml.model import PlacesRecommender
 
 
 @pytest.fixture
@@ -193,7 +193,7 @@ def test_android_can_recommend_using_returned_cluster_names(make_recommender, pl
 def test_clusters_are_stable_across_hash_seeds():
     code = """
 import json
-from ml.model import PlacesRecommender
+from app.ml.model import PlacesRecommender
 recommender = PlacesRecommender.__new__(PlacesRecommender)
 recommender.places = [
     {"id": "2", "category": "Религия", "tags": ["история", "храм"]},

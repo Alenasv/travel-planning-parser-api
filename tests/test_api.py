@@ -3,7 +3,7 @@ from unittest.mock import Mock
 import pytest
 from fastapi.testclient import TestClient
 
-from api import api
+from app.api import api
 
 
 @pytest.fixture

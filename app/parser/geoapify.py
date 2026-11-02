@@ -7,9 +7,10 @@ import requests
 from urllib.parse import quote, urljoin
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
-from utils.utils import save_to_json, download_image, clean_text
-from utils.geo_utils import reverse_geocode, distance
-from config import (
+from app.utils.utils import save_to_json, download_image, clean_text
+from app.utils.geo_utils import reverse_geocode, distance
+from app.config import (
+    BASE_DIR,
     GEOAPIFY_IMAGES_DIR,
     GEOAPIFY_PER_CATEGORY,
     GEOAPIFY_AREA,
@@ -47,7 +48,6 @@ AREAS = {
 PAGE_LIMIT = 500
 MAX_SPLIT_DEPTH = 4
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CACHE_DIR = os.path.join(BASE_DIR, ".geoapify_cache")
 CACHE_TTL_SECONDS = 7 * 24 * 3600
 

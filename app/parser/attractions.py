@@ -5,10 +5,10 @@ from bs4 import BeautifulSoup
 import re
 import time
 from urllib.parse import urljoin
-from utils.utils import clean_text, download_image, save_to_json, map_category
-from utils.geo_utils import geocode
-from utils.normalize import valid_coords
-from config import (
+from app.utils.utils import clean_text, download_image, save_to_json, map_category
+from app.utils.geo_utils import geocode
+from app.utils.normalize import valid_coords
+from app.config import (
     PETERBURG_IMAGES_DIR,
     PETERBURG_PER_CATEGORY,
     PETERBURG_BASE_URL,

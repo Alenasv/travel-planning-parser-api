@@ -7,7 +7,7 @@ import psycopg2
 from psycopg2 import sql
 import pytest
 
-from db import database, migrate
+from app.db import database, migrate
 
 
 @pytest.fixture

@@ -1,5 +1,5 @@
 import re
-from utils.geo_utils import nearest_metro
+from app.utils.geo_utils import nearest_metro
 
 EMPTY_VALUES = {"", "-", "—", "–", "none", "null"}
 

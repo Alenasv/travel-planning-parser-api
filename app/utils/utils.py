@@ -9,8 +9,8 @@ from urllib.parse import urlparse
 import json
 import html
 from transliterate import translit
-from utils.geo_utils import distance
-from config import IMAGE_DOWNLOAD_TIMEOUT
+from app.utils.geo_utils import distance
+from app.config import IMAGE_DOWNLOAD_TIMEOUT
 from difflib import SequenceMatcher
 logger = logging.getLogger(__name__)
 def normalize_name(name):
