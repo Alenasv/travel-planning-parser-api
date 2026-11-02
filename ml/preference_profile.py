@@ -87,3 +87,21 @@ UI_TAGS = {
     "viewpoints": "Видовые места",
     "other": "Интересное"
 }
+
+CLUSTERS = {
+    "culture": {"id": 1, "name": "Культура и музеи"},
+    "nature": {"id": 2, "name": "Парки и природа"},
+    "food": {"id": 3, "name": "Кафе и рестораны"},
+    "religion": {"id": 4, "name": "Храмы и архитектура"},
+    "viewpoints": {"id": 5, "name": "Смотровые площадки"},
+    "entertainment": {"id": 6, "name": "Развлечения"},
+    "active": {"id": 7, "name": "Активный отдых"},
+    "family": {"id": 8, "name": "Семья"},
+    "other": {"id": 9, "name": "Интересные места"},
+}
+
+PREFERENCE_ALIASES = {
+    label.casefold(): key
+    for key, cluster in CLUSTERS.items()
+    for label in (key, cluster["name"], UI_TAGS[key])
+}

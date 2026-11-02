@@ -111,16 +111,16 @@ def test_clustering_with_corrupted_data(recommender):
         pytest.fail(f" обработка пустых координат: {e}")
 
 
-def test_diversification_limits(recommender):
-    heavy_religion_list = [
-        {"name": "Храм 1", "address": "Адр 1", "category": "Религия"},
-        {"name": "Храм 2", "address": "Адр 2", "category": "Религия"},
-        {"name": "Храм 3", "address": "Адр 3", "category": "Религия"},
-        {"name": "Кафе 1", "address": "Адр 4", "category": "Еда"}
+def test_diversification_prefers_distinct_embeddings(recommender):
+    import numpy as np
+
+    candidates = [
+        {"id": "temple-1", "_score": 1.0, "_embedding": np.array([1.0, 0.0])},
+        {"id": "temple-2", "_score": 1.0, "_embedding": np.array([1.0, 0.0])},
+        {"id": "cafe-1", "_score": 1.0, "_embedding": np.array([0.0, 1.0])},
     ]
-    diversified = recommender.diversify_with_route(heavy_religion_list, max_k=4)
-    religion_count = sum(1 for r in diversified if r.get("category") == "Религия")
-    assert religion_count <= 2, f"Найдено {religion_count} объектов категории 'Религия'"
+    result = recommender._diversify(candidates, max_k=2)
+    assert [place["id"] for place in result] == ["temple-1", "cafe-1"]
 
 
 def test_geo_distance_scoring_impact(recommender):

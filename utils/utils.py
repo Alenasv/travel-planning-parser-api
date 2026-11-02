@@ -2,6 +2,8 @@ import os
 import logging
 import re
 import uuid
+from pathlib import Path
+from tempfile import NamedTemporaryFile
 import requests
 from urllib.parse import urlparse
 import json
@@ -121,15 +123,23 @@ def download_image(image_url, place_name, images_dir, session=None):
 
 
 def save_to_json(results, filename):
+    temporary_path = None
     try:
-        os.makedirs(os.path.dirname(filename), exist_ok=True)
-
-        with open(filename, 'w', encoding='utf-8') as f:
-            json.dump(results, f, ensure_ascii=False, indent=2)
+        target = Path(filename)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=target.parent, suffix=".tmp", delete=False
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            json.dump(results, temporary, ensure_ascii=False, indent=2)
+        os.replace(temporary_path, target)
         return True
     except Exception:
         logger.exception("Ошибка при сохранении в JSON")
         return False
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
 
 
 CATEGORY_GROUPS = {

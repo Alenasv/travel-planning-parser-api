@@ -2,7 +2,7 @@ from sentence_transformers import SentenceTransformer
 import numpy as np
 from collections import Counter
 from utils.geo_utils import distance
-from .preference_profile import CORE_PREFERENCES, NOISE_TAGS
+from .preference_profile import CLUSTERS, CORE_PREFERENCES, NOISE_TAGS, PREFERENCE_ALIASES
 
 
 class PlacesRecommender:
@@ -16,7 +16,10 @@ class PlacesRecommender:
             self._build_ui_tags(p)
 
         texts = [
-            f"{p.get('category','')} {' '.join(p.get('tags', []))} {p.get('name','')}"
+            " ".join(
+                [p.get("category") or "", p.get("name") or ""]
+                + [tag for tag in (p.get("tags") or []) if tag]
+            )
             for p in self.places
         ]
 
@@ -33,40 +36,59 @@ class PlacesRecommender:
         return out
 
     def _is_noise(self, tag):
-        return (tag or "").lower() in NOISE_TAGS
+        return (tag or "").strip().casefold() in NOISE_TAGS
 
     def _map_to_ui_tag(self, tag):
-        tag = (tag or "").lower()
-        for group, data in CORE_PREFERENCES.items():
-            if any(k in tag for k in data["keywords"]):
-                return group
-        return "other"
+        tag = (tag or "").strip().casefold()
+        if tag in PREFERENCE_ALIASES:
+            return PREFERENCE_ALIASES[tag]
+        matches = [
+            (len(keyword), group)
+            for group, data in CORE_PREFERENCES.items()
+            for keyword in data["keywords"]
+            if keyword in tag
+        ]
+        return max(matches, default=(0, "other"))[1]
 
     def _build_ui_tags(self, place):
-        tags = (place.get("tags", []) + [place.get("category", "")])
-        ui = set()
-
-        for t in tags:
-            if not self._is_noise(t):
-                ui.add(self._map_to_ui_tag(t))
-
-        ui.discard("other")
-        place["ui_tags"] = list(ui) if ui else ["other"]
+        tags = (place.get("tags") or []) + [place.get("category") or ""]
+        ui = {
+            self._map_to_ui_tag(tag)
+            for tag in tags
+            if not self._is_noise(tag)
+        }
+        place["ui_tags"] = [key for key in CLUSTERS if key != "other" and key in ui] or ["other"]
 
     def normalize_query(self, prefs):
-        if not prefs:
-            return ""
-        return " ".join(str(p).lower().strip() for p in prefs if p)
+        parts = []
+        for pref in prefs or []:
+            value = (pref or "").strip().casefold()
+            if not value or self._is_noise(value):
+                continue
+            key = PREFERENCE_ALIASES.get(value)
+            parts.append(CLUSTERS[key]["name"].casefold() if key else value)
+        return " ".join(dict.fromkeys(parts))
 
     def normalize_preferences(self, prefs):
-        return Counter((p or "").lower() for p in prefs if p)
+        normalized = Counter()
+        for pref in prefs or []:
+            value = (pref or "").strip().casefold()
+            if not value or self._is_noise(value):
+                continue
+            key = self._map_to_ui_tag(value)
+            normalized[key if key != "other" else value] += 1
+        return normalized
 
     def recommend(self, user_preferences, metro_name=None, user_location=None, top_k=10):
 
         query = self.normalize_query(user_preferences)
         query_vec = self.model.encode([query.lower().strip()], normalize_embeddings=True)[0]
-        pref_counts = self.normalize_preferences(user_preferences)
-        pref_set = set(p.lower() for p in user_preferences if p)
+        pref_set = set(self.normalize_preferences(user_preferences))
+        name_preferences = {
+            (pref or "").strip().casefold()
+            for pref in user_preferences or []
+            if (pref or "").strip() and not self._is_noise(pref)
+        }
 
         scored = []
 
@@ -102,8 +124,8 @@ class PlacesRecommender:
                 
 
             name_bonus = 0.0
-            for pref in pref_set:
-                if pref in (p.get("name") or "").lower():
+            for pref in name_preferences:
+                if pref in (p.get("name") or "").casefold():
                     name_bonus += 0.5
 
             score = (
@@ -126,7 +148,7 @@ class PlacesRecommender:
         
         
 
-        if user_preferences:
+        if pref_set:
             candidates = scored[:max(top_k * 2, 10)]
             return self._diversify(candidates, top_k)
         else:
@@ -223,39 +245,29 @@ class PlacesRecommender:
         return out
 
     def build_clusters(self):
-        ru = {
-            "culture": "Культура и музеи",
-            "nature": "Парки и природа",
-            "food": "Кафе и рестораны",
-            "religion": "Храмы и архитектура",
-            "viewpoints": "Смотровые площадки",
-            "other": "Интересные места"
-        }
+        grouped = {key: [] for key in CLUSTERS}
+        for place in self.places:
+            theme = self._map_to_ui_tag(place.get("category"))
+            if theme == "other":
+                tags = place.get("ui_tags") or []
+                theme = next(
+                    (key for key in CLUSTERS if key != "other" and key in tags),
+                    "other",
+                )
+            grouped[theme].append(place)
 
-        grouped_clusters = {}
+        return [
+            {
+                "id": cluster["id"],
+                "key": key,
+                "name": cluster["name"],
+                "tags": [cluster["name"]],
+                "places": sorted(grouped[key], key=lambda place: str(place["id"])),
+            }
+            for key, cluster in CLUSTERS.items()
+            if grouped[key]
+        ]
 
-        for p in self.places:
-            tags = p.get("ui_tags", ["other"])
-            theme = tags[0] if tags else "other"
-
-            if theme not in ru:
-                theme = "other"
-
-            if theme not in grouped_clusters:
-                cid = abs(hash(theme)) % 1000
-                
-                grouped_clusters[theme] = {
-                    "id": cid,
-                    "key": theme,
-                    "name": ru[theme],
-                    "tags": [ru[theme]],  
-                    "places": []
-                }
-            
-            grouped_clusters[theme]["places"].append(p)
-
-        return list(grouped_clusters.values())
-    
     def get_cluster_tags(self, places):
         counter = Counter()
         for p in places:

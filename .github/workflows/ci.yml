@@ -2,32 +2,53 @@ name: Python CI
 
 on:
   push:
-    branches: [ main, ml ] 
+    branches: [main, ml]
   pull_request:
-    branches: [ main ]    
+    branches: [main]
 
 jobs:
-  test:
+  api:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.11"]
-
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
-      with:
-        python-version: ${{ matrix.python-version }}
-        
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install requests python-dotenv sentence-transformers scikit-learn numpy pytest
-        
-    - name: Run tests
-      env:
-        PYTHONPATH: ${{ github.workspace }}
-      run: |
-        pytest tests/evaluate_model.py
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r requirements-test.txt
+      - run: python -m pytest tests/test_api.py tests/test_data_updates.py -q
+
+  model:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r requirements.txt -r requirements-test.txt
+      - run: python -m pytest tests/test_model.py tests/evaluate_model.py -q
+
+  database:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: test-password
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_POSTGRES_DSN: postgresql://postgres:test-password@127.0.0.1:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r requirements-test.txt
+      - run: python -m pytest tests/test_migrations.py -q

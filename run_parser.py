@@ -1,7 +1,5 @@
 from parser.attractions import PeterburgCenterParser
 from parser.geoapify import GeoapifyParser
-import os
-import shutil
 import logging
 from db.database import sync_places, check_database
 from collections import Counter
@@ -9,10 +7,9 @@ from utils.utils import deduplicate
 from utils.normalize import finalize_place
 from urllib.request import Request, urlopen
 from config import (
-    DATA_DIR,
     API_BASE_URL,
     RELOAD_MODEL_TIMEOUT,
-    ALL_PLACES_FILE,
+    RELOAD_MODEL_TOKEN,
     GEOAPIFY_IMAGES_DIR,
     PETERBURG_IMAGES_DIR,
     GEOAPIFY_PER_CATEGORY,
@@ -77,51 +74,37 @@ def print_report(places):
     logger.info("С описанием: %s/%s", count(lambda p: p['description']), total)
     logger.info("Без тегов: %s", count(lambda p: not p['tags']))
 
-def cleanup_previous_data():
-    json_files = ['data/all_places.json', 'data/places.json', 'data/geoapify_places.json']
-    image_dirs = ['data/places_images', 'data/geoapify_images']
-    
-    deleted_files = 0
-    for json_file in json_files:
-        if os.path.exists(json_file):
-            try:
-                os.remove(json_file)
-                deleted_files += 1
-            except Exception as e:
-                logger.exception("Не удалось удалить файл %s", json_file)
-    
-    deleted_dirs = 0
-    for image_dir in image_dirs:
-        if os.path.exists(image_dir):
-            try:
-                shutil.rmtree(image_dir)
-                deleted_dirs += 1
-            except Exception as e:
-                logger.exception("Не удалось удалить директорию %s", image_dir)
 def reload_ml_model():
+    if not RELOAD_MODEL_TOKEN:
+        logger.error("Обновление модели пропущено: RELOAD_MODEL_TOKEN не задан")
+        return False
+
     url = f"{API_BASE_URL}/reload-model"
 
     request = Request(
         url,
         data=b"",
         method="POST",
-        headers={"Accept": "application/json"}
+        headers={
+            "Accept": "application/json",
+            "Authorization": f"Bearer {RELOAD_MODEL_TOKEN}",
+        }
     )
 
     try:
         with urlopen(request, timeout=RELOAD_MODEL_TIMEOUT) as response:
             result = response.read().decode("utf-8")
             logger.info("Ответ API: %s", result)
+            return True
 
     except Exception as e:
         logger.exception(
             "PostgreSQL обновлена, но ML-модель не обновилась"
         )
+        return False
 
 def main():
 
-    cleanup_previous_data()
-    
     all_places = []
 
 

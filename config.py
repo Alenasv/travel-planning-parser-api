@@ -8,6 +8,7 @@ BASE_DIR = Path(__file__).resolve().parent
 
 DATA_DIR = BASE_DIR / "data"
 PLACES_IMAGES_DIR = DATA_DIR / "places_images"
+PETERBURG_IMAGES_DIR = PLACES_IMAGES_DIR
 GEOAPIFY_IMAGES_DIR = DATA_DIR / "geoapify_images"
 
 ALL_PLACES_FILE = DATA_DIR / "all_places.json"
@@ -22,6 +23,7 @@ API_HOST = os.getenv("API_HOST", "0.0.0.0")
 API_PORT = int(os.getenv("API_PORT", "8000"))
 API_BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
 RELOAD_MODEL_TIMEOUT = int(os.getenv("RELOAD_MODEL_TIMEOUT", "300"))
+RELOAD_MODEL_TOKEN = os.getenv("RELOAD_MODEL_TOKEN", "").strip()
 
 GEOAPIFY_PER_CATEGORY = int(os.getenv("GEOAPIFY_PER_CATEGORY", "2"))
 GEOAPIFY_AREA = os.getenv("GEOAPIFY_AREA", "center")

@@ -30,8 +30,7 @@ def sync_places(data):
 
     if not data:
         raise ValueError(
-            "Список мест пуст. Синхронизация отменена, "
-            "чтобы не удалить все записи из БД."
+            "Список мест пуст. Синхронизация отменена."
         )
 
     values = []
@@ -97,33 +96,22 @@ def sync_places(data):
                         work_time = EXCLUDED.work_time,
                         tags = EXCLUDED.tags,
                         coords = EXCLUDED.coords,
-                        image_filename = EXCLUDED.image_filename,
+                        image_filename = COALESCE(EXCLUDED.image_filename, places.image_filename),
                         source = EXCLUDED.source,
                         url = EXCLUDED.url,
                         opening_hours = EXCLUDED.opening_hours,
                         phone = EXCLUDED.phone,
                         website = EXCLUDED.website,
-                        image_source = EXCLUDED.image_source,
+                        image_source = CASE
+                            WHEN EXCLUDED.image_filename IS NOT NULL THEN EXCLUDED.image_source
+                            ELSE places.image_source
+                        END,
                         metro_distance_km = EXCLUDED.metro_distance_km
                     """,
                     values,
                 )
 
-                cur.execute(
-                    """
-                    DELETE FROM public.places
-                    WHERE NOT (id = ANY(%s))
-                    """,
-                    (list(seen_ids),),
-                )
-
-                deleted_count = cur.rowcount
-
-        logger.info(
-            "Синхронизация завершена: обработано %s, удалено %s",
-            len(values),
-            deleted_count,
-        )
+        logger.info("Синхронизация завершена: обработано %s", len(values))
 
 
     except Exception:
