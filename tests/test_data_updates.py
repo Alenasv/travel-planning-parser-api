@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from unittest.mock import MagicMock, Mock
 from urllib.error import URLError
 
@@ -20,6 +21,14 @@ def connection(monkeypatch):
     execute = Mock()
     monkeypatch.setattr(database, "execute_values", execute)
     return connection, cursor, execute
+
+
+def test_data_paths_stay_in_repository_root(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    repository_root = Path(__file__).resolve().parents[1]
+
+    assert config.DATA_DIR == repository_root / "data"
+    assert config.ALL_PLACES_FILE == repository_root / "data" / "all_places.json"
 
 
 def test_parser_image_configuration():
@@ -169,3 +178,43 @@ def test_parser_reports_reload_failure(monkeypatch):
     monkeypatch.setattr(run_parser, "RELOAD_MODEL_TOKEN", "test-service-token")
     monkeypatch.setattr(run_parser, "urlopen", Mock(side_effect=URLError("unavailable")))
     assert run_parser.reload_ml_model() is False
+
+
+def test_image_download_saves_complete_image(tmp_path):
+    session = Mock()
+    session.get.return_value.status_code = 200
+    session.get.return_value.content = b"image data" * 200
+
+    result = utils.download_image(
+        "https://example.com/photo.jpg", "Museum", str(tmp_path), session=session,
+    )
+
+    assert result is not None
+    assert Path(result).read_bytes() == session.get.return_value.content
+    assert list(tmp_path.iterdir()) == [Path(result)]
+
+
+def test_image_download_removes_too_small_file(tmp_path):
+    session = Mock()
+    session.get.return_value.status_code = 200
+    session.get.return_value.content = b"incomplete image"
+
+    result = utils.download_image(
+        "https://example.com/photo.jpg", "Museum", str(tmp_path), session=session,
+    )
+
+    assert result is None
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_image_download_timeout_leaves_no_files(tmp_path):
+    session = Mock()
+    session.get.side_effect = utils.requests.exceptions.Timeout("timed out")
+
+    result = utils.download_image(
+        "https://example.com/photo.jpg", "Museum", str(tmp_path), session=session,
+    )
+
+    assert result is None
+    session.get.assert_called_once()
+    assert list(tmp_path.iterdir()) == []
