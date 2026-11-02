@@ -1,4 +1,5 @@
 import os
+import logging
 import re
 import uuid
 import requests
@@ -7,8 +8,9 @@ import json
 import html
 from transliterate import translit
 from utils.geo_utils import distance
+from config import IMAGE_DOWNLOAD_TIMEOUT
 from difflib import SequenceMatcher
-
+logger = logging.getLogger(__name__)
 def normalize_name(name):
     if not name:
         return ""
@@ -74,13 +76,13 @@ def download_image(image_url, place_name, images_dir, session=None):
         
         try:
             if session is not None:
-                response = session.get(clean_url, timeout=30, allow_redirects=True)
+                response = session.get(clean_url, timeout=IMAGE_DOWNLOAD_TIMEOUT, allow_redirects=True)
             else:
                 session = requests.Session()
                 session.headers.update(headers)
                 response = session.get(
                     clean_url, 
-                    timeout=30,  
+                    timeout=IMAGE_DOWNLOAD_TIMEOUT,  
                     stream=True,
                     allow_redirects=True
                 )
@@ -97,20 +99,24 @@ def download_image(image_url, place_name, images_dir, session=None):
                     return None
 
             elif response.status_code == 404:
-                print(f"Картинка не найдена (404): {clean_url}")
+                logger.warning("Картинка не найдена (404): %s", clean_url)
                 return None
             else:
-                print(f"Ошибка загрузки {clean_url}: {response.status_code}")
+                logger.warning(
+                    "Ошибка загрузки изображения %s: HTTP %s",
+                    clean_url,
+                    response.status_code
+                )
                 return None
                 
         except requests.exceptions.Timeout:
             return None
         except requests.exceptions.ConnectionError:
-            print(f"Ошибка соединения при загрузке: {clean_url}")
+            logger.warning("Ошибка соединения при загрузке: %s", clean_url)
             return None
             
     except Exception as e:
-        print(f"Ошибка при загрузке изображения {image_url}: {e}")
+        logger.exception("Ошибка при загрузке изображения: %s", image_url)
         return None
 
 
@@ -121,8 +127,8 @@ def save_to_json(results, filename):
         with open(filename, 'w', encoding='utf-8') as f:
             json.dump(results, f, ensure_ascii=False, indent=2)
         return True
-    except Exception as e:
-        print(f"Ошибка при сохранении в JSON: {e}")
+    except Exception:
+        logger.exception("Ошибка при сохранении в JSON")
         return False
 
 

@@ -9,6 +9,13 @@ from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from utils.utils import save_to_json, download_image, clean_text
 from utils.geo_utils import reverse_geocode, distance
+from config import (
+    GEOAPIFY_IMAGES_DIR,
+    GEOAPIFY_PER_CATEGORY,
+    GEOAPIFY_AREA,
+    GEOAPIFY_REQUIRE_DETAILS,
+    GEOAPIFY_REQUEST_TIMEOUT,
+)
 
 load_dotenv()
 
@@ -116,8 +123,13 @@ def osm_hours_to_ru(value):
 
 class GeoapifyParser:
 
-    def __init__(self, images_dir="data/geoapify_images", per_category=2, area="center",
-                 require_details=True):
+    def __init__(
+        self,
+        images_dir=GEOAPIFY_IMAGES_DIR,
+        per_category=GEOAPIFY_PER_CATEGORY,
+        area=GEOAPIFY_AREA,
+        require_details=GEOAPIFY_REQUIRE_DETAILS
+    ):
         self.api_key = os.getenv("GEOAPIFY_KEY")
         self.images_dir = images_dir
         self.per_category = per_category
@@ -141,10 +153,12 @@ class GeoapifyParser:
 
         for attempt in range(1, retries + 1):
             try:
-                response = self.session.get(url, params=params, timeout=60)
+                response = self.session.get(
+                    url,
+                    params=params,
+                    timeout=GEOAPIFY_REQUEST_TIMEOUT
+                )
             except Exception as e:
-                print(f"geoapify: сетевая ошибка, попытка {attempt}/{retries}: "
-                      f"{type(e).__name__}: {self.hide_key(e)[:300]}")
                 time.sleep(2 * attempt)
                 continue
 
@@ -155,10 +169,8 @@ class GeoapifyParser:
             if response.status_code == 401:
                 raise RuntimeError("Geoapify отклонил ключ (401) — проверьте GEOAPIFY_KEY в .env")
             if response.status_code == 429:
-                print("geoapify: превышен лимит запросов (429), жду 10 с")
                 time.sleep(10)
                 continue
-            print(f"geoapify: ответ {response.status_code}: {self.hide_key(response.text)[:300]}")
             return None
 
         return None
@@ -177,7 +189,6 @@ class GeoapifyParser:
             try:
                 response = self.session.get(url, params=params, timeout=30)
             except Exception as e:
-                print(f"{host}: сетевая ошибка, попытка {attempt}/{retries} ({type(e).__name__})")
                 time.sleep(2 * attempt)
                 continue
 
@@ -188,7 +199,6 @@ class GeoapifyParser:
             if response.status_code == 404:
                 self._wiki_cache[cache_key] = None
                 return None
-            print(f"{host}: ответ {response.status_code}, попытка {attempt}/{retries}")
             if response.status_code == 429:
                 retry_after = response.headers.get("Retry-After", "")
                 time.sleep(int(retry_after) if retry_after.isdigit() else 20 * attempt)
@@ -241,7 +251,6 @@ class GeoapifyParser:
             return result
 
         if features is None:
-            print(f"geoapify: квадрат {rect} не загрузился, пропускаю")
             return []
         return features
 
@@ -256,7 +265,6 @@ class GeoapifyParser:
                 props = feature.get("properties") or {}
                 if props.get("place_id") and self.in_spb(feature):
                     found[props["place_id"]] = feature
-            print(f"geoapify: квадрат {i}/{len(cells)}, всего мест: {len(found)}")
         return list(found.values())
 
     @staticmethod
@@ -556,7 +564,6 @@ class GeoapifyParser:
             try:
                 path = fetch()
             except Exception as e:
-                print(f"фото «{name}» ({source}): ошибка {type(e).__name__}")
                 path = None
             if path:
                 return path, source
@@ -625,15 +632,12 @@ class GeoapifyParser:
 
     def parse(self):
         if not self.api_key:
-            print("geoapify: нет GEOAPIFY_KEY в .env — пропускаю")
             return []
 
         try:
             features = self.fetch_all()
         except RuntimeError as e:
-            print(f"geoapify: {e}")
             return []
-        print(f"geoapify: запросов к API: {self.requests_made}, мест в области: {len(features)}")
 
         by_type = {}
         for feature in features:
@@ -660,15 +664,12 @@ class GeoapifyParser:
                 try:
                     place = self.format_place(element, category, type_name, base_tags)
                 except Exception as e:
-                    print(f"geoapify: ошибка «{element['tags'].get('name')}»: {e}")
                     continue
                 if place:
                     results.append(place)
                     taken_names.add(name_key)
                     taken += 1
 
-            print(f"geoapify: {type_name}: найдено {len(by_type.get(code, []))}, "
-                  f"с данными {len(elements)}, взято {taken}")
 
         return results
 

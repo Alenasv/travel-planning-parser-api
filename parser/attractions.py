@@ -1,4 +1,5 @@
 import requests
+import logging
 import os
 from bs4 import BeautifulSoup
 import re
@@ -7,16 +8,26 @@ from urllib.parse import urljoin
 from utils.utils import clean_text, download_image, save_to_json, map_category
 from utils.geo_utils import geocode
 from utils.normalize import valid_coords
+from config import (
+    PETERBURG_IMAGES_DIR,
+    PETERBURG_PER_CATEGORY,
+    PETERBURG_BASE_URL,
+)
 
+logger = logging.getLogger(__name__)
 MAX_ADDRESS_LEN = 150
 COORDS_PAIR_RE = re.compile(r"(5[89]|6[01])\.(\d{3,})\s*,\s*(2[7-9]|3[0-5])\.(\d{3,})")
 COORDS_PAIR_REVERSED_RE = re.compile(r"(2[7-9]|3[0-5])\.(\d{3,})\s*,\s*(5[89]|6[01])\.(\d{3,})")
 
 class PeterburgCenterParser:
-    def __init__(self, images_dir='places_images', per_category=2):
+    def __init__(
+        self,
+        images_dir=PETERBURG_IMAGES_DIR,
+        per_category=PETERBURG_PER_CATEGORY
+    ):
         self.images_dir = images_dir
         self.per_category = per_category
-        self.base_url = "https://peterburg.center"
+        self.base_url = PETERBURG_BASE_URL
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -34,8 +45,8 @@ class PeterburgCenterParser:
             response.raise_for_status()
             response.encoding = 'utf-8'
             return response.text
-        except Exception as e:
-            print(f"Ошибка загрузки {url}: {e}")
+        except Exception:
+            logger.exception("Ошибка загрузки страницы: %s", url)
             return None
 
     def get_address(self, soup):
@@ -367,8 +378,8 @@ class PeterburgCenterParser:
                         continue
                 time.sleep(2)
                 
-            except Exception as e:
-                print(f"Ошибка {category_url}: {e}")
+            except Exception:
+                logger.exception("Ошибка обработки категории: %s", category_url)
                 continue
         return all_data
     
@@ -400,4 +411,4 @@ if __name__ == "__main__":
     if results:
         save_to_json(results, 'data/places.json')
     else:
-        print("Не удалось собрать")
+        logger.warning("Не удалось собрать места")

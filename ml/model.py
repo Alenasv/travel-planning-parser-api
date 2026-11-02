@@ -80,9 +80,7 @@ class PlacesRecommender:
                     pref_match_score += 1.5
             
             if pref_set and pref_match_score == 0:
-                is_religion_test = user_preferences == ["религия"] and user_location and user_location["lat"] == 59.934
-                if not is_religion_test:
-                    pref_match_score = -0.5
+                pref_match_score = -0.5
 
             metro_bonus = 0.0
             if metro_name:
@@ -101,13 +99,7 @@ class PlacesRecommender:
                 
                 dist_score = np.exp(-d / 2.0) * 3.0
                 
-                if user_preferences == ["религия"] and user_location and user_location["lat"] == 59.934:
-                    if "isaakievskiy" in (p.get("id") or "").lower():
-                        dist_score = 100.0
-                    elif "hermitage" in (p.get("id") or "").lower():
-                        dist_score = 0.1
-
-            pop_score = np.log1p(p.get("reviews_count", 0)) / 10.0
+                
 
             name_bonus = 0.0
             for pref in pref_set:
@@ -115,12 +107,11 @@ class PlacesRecommender:
                     name_bonus += 0.5
 
             score = (
-                pref_match_score * 2.0 +    
-                dist_score * 1.5 +          
-                name_bonus * 1.0 +          
-                emb_score * 2.0 +           
-                metro_bonus * 0.3 +
-                pop_score * 0.5             
+                pref_match_score * 2.0 +
+                dist_score * 1.5 +
+                name_bonus * 1.0 +
+                emb_score * 2.0 +
+                metro_bonus * 0.3
             )
 
             scored.append({
@@ -133,18 +124,7 @@ class PlacesRecommender:
 
         scored.sort(key=lambda x: x["_score"], reverse=True)
         
-        if user_preferences == ["религия"] and user_location and user_location["lat"] == 59.934:
-            isaak_index = None
-            for idx, p in enumerate(scored):
-                if "isaakievskiy" in (p.get("id") or "").lower():
-                    isaak_index = idx
-                    break
-            
-            if isaak_index is not None and isaak_index > 0:
-                isaak = scored.pop(isaak_index)
-                scored.insert(0, isaak)
-            
-            return scored[:top_k]
+        
 
         if user_preferences:
             candidates = scored[:max(top_k * 2, 10)]
