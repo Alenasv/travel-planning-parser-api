@@ -90,4 +90,10 @@ python -m pytest tests/test_api.py tests/test_data_updates.py tests/test_migrati
 
 ## Лицензия
 
-Код распространяется по [Apache License 2.0](LICENSE). Внешние данные, изображения и веса модели имеют собственные условия использования.
+Код распространяется по [Apache License 2.0](LICENSE). Изображения и сведения о местах имеют собственные условия использования, определяемые их источниками.
+
+Сведения о местах и геокодирование на сервере частично предоставляются [Geoapify](https://www.geoapify.com/).
+
+Powered by [Geoapify](https://www.geoapify.com/) · © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright).
+
+Данные OpenStreetMap распространяются на условиях [Open Database License (ODbL)](https://www.openstreetmap.org/copyright). Использование Geoapify регулируется [условиями сервиса](https://www.geoapify.com/terms-and-conditions/).
